@@ -89,6 +89,7 @@ class TSPXL(nn.Module):
         h_enc, _ = self.encoder(h)  # (N, B, H)
 
         tour = []
+        probs_cat = []
         sum_log_probs = []
         # Decode it !
         for t in range(segment_len):
@@ -99,7 +100,7 @@ class TSPXL(nn.Module):
             probs : (B, 1, nc)
             hids, mems : len=9, size(hid)=(1,B,H), size(mem)=(N,B,H)
             '''
-            probs, hids, mems = self.decoder(h_t, mask, mems=mems) 
+            probs, hids, mems = self.decoder(h_t, mask, mems=mems)
 
             if self.deterministic:
                 city = probs.argmax(dim=-1)  # (B, 1)
@@ -107,8 +108,9 @@ class TSPXL(nn.Module):
                 city = Categorical(probs).sample()  # (B, 1)
 
             tour.append(city)
+            probs_cat.append(probs)
             
-            # chosen_prob = probs[toB, city.squeeze_()]  # (B) for REINFORCE
+            chosen_prob = probs[toB, :, city.squeeze()]  # (B) for REINFORCE
             # sum_log_probs.append(chosen_prob.log())  # for REINFORCE
             
             # update mask 
@@ -120,16 +122,24 @@ class TSPXL(nn.Module):
             # update mems
             new_mems = self._update_mems(hids, mems, segment_len)
 
+            if self.rl:
+                chosen_prob = probs[toB, :, city.squeeze()]
+                sum_log_probs.append(chosen_prob.log())
+            else:
+                # compute loss ?
+                pass
+
             # Loss
-            target_t = target[:,t]  # (B, 1)
-            loss = self.criterion(city, target_t)
-            self.optimizer.zero_grad()
-            loss.mean().backward()
-            self.optimizer.step()
+            # target_t = target[:,t]  # (B, 1)
+            # loss = self.criterion(city, target_t)
+            # self.optimizer.zero_grad()
+            # loss.mean().backward()
+            # self.optimizer.step()
         
         tour = torch.cat(tour, dim=1)
+        probs_cat = torch.cat(probs_cat, dim=1)
             
-        return tour, loss, new_mems
+        return tour, probs_cat, new_mems  #, loss
 
 if __name__ == '__main__':
     bsz, d_model, n_class = 100, 128, 50
