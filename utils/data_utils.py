@@ -25,8 +25,6 @@ class RandomTSPGenerator:
     def __iter__(self):
         return self.get_fixlen_iter()
 
-class TSPDataset(Dataset):
-    pass
 
 class TSPDataset(Dataset):
     """
