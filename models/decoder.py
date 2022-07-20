@@ -152,10 +152,6 @@ class TSPDecoder(nn.Module):
         self.classifier = nn.Parameter(torch.randn(bsz, d_model, n_class))
         pass
 
-    def _update_mems(self, hids, mems):
-        if mems is None: return None
-
-
     def forward(self, h_t, mask, mems=None):
         """
         Inputs:
