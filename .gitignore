@@ -1,0 +1,7 @@
+/.vscode
+/datasets
+/logs
+/unittest.py
+models/__pycache__/attention.cpython-310.pyc
+models/__pycache__/decoder.cpython-310.pyc
+models/__pycache__/encoder.cpython-310.pyc
