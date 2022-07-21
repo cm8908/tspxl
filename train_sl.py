@@ -7,7 +7,7 @@ import torch
 import numpy as np
 
 from models.model import TSPXL
-from configs.default_config import args
+from configs.default_rl import args
 from utils.exp_utils import create_exp_dir
 from utils.data_utils import TSPDataset
 
