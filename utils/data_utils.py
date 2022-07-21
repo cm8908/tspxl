@@ -3,17 +3,27 @@ import torch
 from torch.utils.data import Dataset
 
 class RandomTSPGenerator:
-    def __init__(self, bsz, seq_len, max_step, device='cpu', ext_len=None):
+    def __init__(self, bsz, total_len, max_step, device='cpu', ext_len=None, segm_len=-1):
         self.bsz = bsz
         self.max_step = max_step
-        self.seq_len = seq_len  # tgt_len
-        self.ext_len = ext_len if ext_len is not None else 0
+        self.total_len = total_len
+        self.segm_len = segm_len
 
         self.device = device
     
-    def get_batch(self):
-        data = torch.rand(self.seq_len, self.bsz, 2).to(self.device)  # (N, B, 2)
-        return data
+    def make_batch(self):
+        batch = torch.rand(self.total_len, self.bsz, 2).to(self.device)  # (N, B, 2)
+        return batch
+
+    def get_split_iter(self):
+        for i in range(self.max_step):
+            batch = self.make_batch()
+            n_segm = batch.size(1) // self.segm_len
+            for j in range(0, batch.size(1), self.segm_len):
+                try:
+                    yield self.segm_len, batch[:,j:j+self.segm_len,:]
+                except IndexError:
+                    yield batch.size(1) - j, batch[:,j:j+self.segm_len,:]
 
     def get_fixlen_iter(self):
         for i in range(self.max_step):
@@ -23,7 +33,10 @@ class RandomTSPGenerator:
         raise NotImplementedError
 
     def __iter__(self):
-        return self.get_fixlen_iter()
+        if self.segm_len > 0:
+            return self.get_split_iter()
+        else:
+            return self.get_fixlen_iter()
 
 
 class TSPDataset(Dataset):
@@ -33,7 +46,8 @@ class TSPDataset(Dataset):
     self.label : concorde solutions of tsp tour index sequence (Tensor shape B x N)
     Return: data, label indices  #, distance matrix, modified adjacency matrix, adjacency matrix, label tour length
     """
-    def __init__(self, n, mode, root_dir='datasets', author='joshi', device='cpu'):
+    # TODO: implement split_iter
+    def __init__(self, n, mode, root_dir='datasets', author='joshi', device='cpu', segm_len=-1):
 
         filename = f'tsp{n}_{mode}_concorde.txt'
         filename = os.path.join(root_dir, author+'-data', filename)
