@@ -3,10 +3,17 @@ class DotDict(dict):
         return self[key]
 args = DotDict()
 
+# Learning Method #
+args.rl = True
+args.loss_fn = 'reinforce'
+args.update_intermediate = False
+args.update_total = True
+
 # Experimental #
 args.debug = True
 args.exp_dir = 'debug'
 args.seed = 1234
+args.eval_interval
 
 # GPU #
 args.cuda = True
@@ -18,12 +25,10 @@ args.data_root = '../datasets'
 args.data_source = 'joshi'
 args.n_point = 50
 args.bsz = 1
+args.segm_len = 25
 
 # Optimizer #
-args.optim = str()
-
-# Loss function #
-args.loss_fn = str()
+args.optim = 'adam'
 
 # Model Hyperparameters #
 args.d_model = 1
