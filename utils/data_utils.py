@@ -42,7 +42,7 @@ class TSPDataset(Dataset):
         self.label = []
         with open(filename, 'r') as file:
             for line in file:
-                if line is '\n':
+                if line == '\n':
                     break
                 sample = line.split(' ')    
                 xs = list(map(float, sample[:2*n-1:2]))
@@ -75,8 +75,11 @@ class TSPDataset(Dataset):
         return self.data[idx], self.label[idx] #, self.dist[idx], self.adj[idx].long(), self.real_adj[idx].long(), self.tour_len[idx]
 
 if __name__ == '__main__':
-    dataset = TSPDataset(n=10, mode='train', root_dir='/home/gailab/ms/tspxl/datasets', author='joshi', device='cpu')
-    data, label = dataset[0]
-    print(len(dataset))
-    print(data.shape, label.shape)
-    print(label)
+    trainset = TSPDataset(n=10, mode='train', root_dir='/home/gailab/ms/tspxl/datasets', author='joshi', device='cpu')
+    valset = TSPDataset(n=10, mode='val', root_dir='/home/gailab/ms/tspxl/datasets', author='joshi', device='cpu')
+    testset = TSPDataset(n=10, mode='test', root_dir='/home/gailab/ms/tspxl/datasets', author='joshi', device='cpu')
+    print(f'train: {len(trainset)}, val: {len(valset)}, test: {len(testset)}')
+    # data, label = dataset[0]
+    # print(len(dataset))
+    # print(data.shape, label.shape)
+    # print(label)
