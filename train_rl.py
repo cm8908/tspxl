@@ -1,13 +1,15 @@
 """
 Reinforcement Learning
 """
+from argparse import ArgumentError
 import os, shutil
 import time
 import torch
 import numpy as np
 
+from torch import optim
 from models.model import TSPXL
-from configs.default_config import args
+from configs.default_rl import args
 from utils.exp_utils import create_exp_dir
 from utils.data_utils import RandomTSPGenerator
 
@@ -36,6 +38,18 @@ else:
     
 # Load hyperparameters
 # Initialize criterion and optimizer
+def criterion(L_train, L_base, p):
+    return torch.mean((L_train - L_base) * p)
+
+if args.optim == 'sgd':
+    optimizer = optim.SGD
+elif args.optim == 'rmsprop':
+    optimizer = optim.RMSprop
+elif args.optim == 'adam':
+    optimizer = optim.Adam
+else:
+    raise ValueError("Proper optimizer should be provided")
+
 # Initialize model
 model = TSPXL(
     d_model=args.d_model,
@@ -56,5 +70,6 @@ model = TSPXL(
 def evaluate():
     pass
 def train():
+
     pass
 
