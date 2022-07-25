@@ -2,8 +2,8 @@ import torch
 from torch import nn
 from torch.distributions import Categorical
 
-from encoder import TSPEncoder
-from decoder import TSPDecoder
+from models.encoder import TSPEncoder
+from models.decoder import TSPDecoder
 
 class TSPXL(nn.Module):
     """
@@ -20,24 +20,24 @@ class TSPXL(nn.Module):
 
 
     """
-    def __init__(self, rl, d_model, d_ff, n_head, n_layer, n_class, bsz, deterministic, criterion, optimizer,
+    def __init__(self, rl, d_model, d_ff, n_head, n_enc_layer, n_dec_layer, n_class, bsz, deterministic, criterion,
                        dropout_rate, internal_drop, clip_value, pre_lnorm, clamp_len):
         super().__init__()
         self.d_model = d_model
         self.n_class = n_class
-        self.n_layer = n_layer
+        self.n_enc_layer = n_enc_layer
+        self.n_dec_layer = n_dec_layer
         self.deterministic = deterministic
         self.rl = rl
 
 
         self.input_emb = nn.Linear(2, d_model)
         self.start_tokens = nn.Parameter(torch.randn(d_model))
-        self.encoder = TSPEncoder(d_model, d_ff, n_head, n_layer)
-        self.decoder = TSPDecoder(d_model, d_ff, n_layer, n_head, n_class, clamp_len,
+        self.encoder = TSPEncoder(d_model, d_ff, n_head, n_enc_layer)
+        self.decoder = TSPDecoder(d_model, d_ff, n_dec_layer, n_head, n_class, clamp_len,
                                   bsz, dropout_rate, internal_drop, clip_value, pre_lnorm)
 
         self.criterion = criterion
-        self.optimizer = optimizer(self.parameters())
     
     def _init_mems(self):
         mems = []
@@ -47,19 +47,15 @@ class TSPXL(nn.Module):
             mems.append(empty)
         return mems
 
-    def _update_mems(self, hids, mems, segment_len, first=False):
+    def _update_mems(self, hids, mems, segment_len):
         if mems is None: return None
 
         assert len(hids) == len(mems), 'len(hids) != len(mems)'
-        if first:
-            pass
-        else:
-            with torch.no_grad():
-                new_mems = []
-                start_idx = segment_len
-                for i in range(len(hids)):
-                    cat = torch.cat([mems[i], hids[i]], dim=0)  # (N+1, B, H)
-                    new_mems.append(cat[start_idx:].detach())
+        with torch.no_grad():
+            new_mems = []
+            for i in range(len(hids)):
+                cat = torch.cat([mems[i], hids[i]], dim=0)  # (1~N, B, H)
+                new_mems.append(cat[-segment_len:].detach())
         return new_mems
 
     def forward(self, x, target, mask, *mems):
@@ -93,6 +89,7 @@ class TSPXL(nn.Module):
         probs_cat = []
         log_probs = []
         # Decode it !
+        self.decoder.reset_KV_sa()
         for t in range(segment_len):
             h_t = h_enc[t:t+1]
 
@@ -101,7 +98,7 @@ class TSPXL(nn.Module):
             probs : (B, 1, nc)
             hids, mems : len=9, size(hid)=(1,B,H), size(mem)=(N,B,H)
             '''
-            probs, hids, mems = self.decoder(h_t, mask, mems=mems)
+            probs, hids, mems = self.decoder(h_t, mask, *mems)
 
             if self.deterministic:
                 city = probs.argmax(dim=-1)  # (B, 1)
@@ -115,15 +112,16 @@ class TSPXL(nn.Module):
             log_probs.append(chosen_prob.log())
             
             # update mask 
-            mask_temp = torch.zeros(bsz, self.n_class, device=mask.device, dtype=mask.dtype)  # (B, nc)
-            mask_temp[torch.arange(bsz), city.squeeze()] = 1
-            mask_temp = mask_temp[:,None,:].repeat(1, self.d_model, 1)  # (B, H, nc)
-            mask = mask + mask_temp
+            if mask is not None:
+                mask_temp = torch.zeros(bsz, self.n_class, device=mask.device, dtype=mask.dtype)  # (B, nc)
+                mask_temp[torch.arange(bsz), city.squeeze()] = 1
+                mask_temp = mask_temp[:,None,:].repeat(1, self.d_model, 1)  # (B, H, nc)
+                mask = mask + mask_temp
             
             # update mems
-            new_mems = self._update_mems(hids, mems, segment_len)
+            mems = self._update_mems(hids, mems, segment_len)
 
-            # compute loss ?
+            # compute loss ? (for SL)
 
             # Loss
             # target_t = target[:,t]  # (B, 1)
@@ -136,7 +134,7 @@ class TSPXL(nn.Module):
         sum_log_probs = torch.cat(log_probs, dim=1).sum(dim=1)  # (B)
         probs_cat = torch.cat(probs_cat, dim=1)  # (B, N, nc)
             
-        return tour, sum_log_probs, probs_cat, new_mems  #, loss
+        return tour, sum_log_probs, probs_cat, mask, mems  #, loss
 
 if __name__ == '__main__':
     import os
