@@ -18,7 +18,7 @@ import numpy as np
 from torch import nn, optim
 from time import time
 from models.model import TSPXL
-from utils.exp_utils import create_exp_dir
+from utils.exp_utils import create_exp_dir, save_checkpoint
 from utils.data_utils import RandomTSPGenerator, TSPDataset
 
 # Set seed and cuda
@@ -149,12 +149,17 @@ def compute_tour_length(tour, x):
     return L
 
 def update_model(tour, tour_b, sum_log_probs, full_data):
+    start = time()
     optimizer.zero_grad()
     L_train = compute_tour_length(tour, full_data)
     L_base = compute_tour_length(tour_b, full_data)
     loss = model.criterion(L_train, L_base, sum_log_probs)
     loss.backward()
     optimizer.step()
+    dur = time() - start
+    return dur, L_train.mean().item(), L_base.mean().item(), loss.mean().item()
+
+min_tour_length = None
 
 def eval_rl():
 
@@ -205,19 +210,51 @@ def eval_rl():
     val_loss_mean = np.mean(val_loss_list)
 
     dur = time() - eval_start_time
+    
+    # Update baseline if train model is better
+    if L_train_mean + args.tol < L_base_mean:
+        baseline.load_state_dict(model.state_dict())
+        log('@' * 100)
+        log('Baseline has been updated. Mean L_train', L_train_mean)
+        log('@' * 100)
+
+    # Save model if shorted tour length
+    if min_tour_length is not None and min_tour_length > L_train_mean:
+        min_tour_length = L_train_mean
+        save_checkpoint(model, optimizer, args.exp_dir, e)
+        log('@' * 100)
+        log('Model has been saved. Min Mean L_train', min_tour_length)
+        log('@' * 100)
+
 
     log('#' * 100)
-    log_str = f'Eval ({args.rl_eval_maxstep}) - Time {dur}s | Mean L_train {L_train_mean} | Mean L_base {L_base_mean} | Mean Valid Loss {val_loss_mean}'
+    log_str = f'Eval Log -- (Step:{args.rl_eval_maxstep}) | Total Time {dur:.3f}s | Time per step {dur/args.rl_eval_maxstep:.3f}s | Mean L_train {L_train_mean:.5f} | Mean L_base {L_base_mean:.5f} | Mean Val Loss {val_loss_mean:.5f}'
     log(log_str)
     log('#' * 100)
 
 
 def train_rl():
-    torch.autograd.set_detect_anomaly(True)
+    # torch.autograd.set_detect_anomaly(True)
+    t_epoch_start = time()
+
+    t_model_forward_list = []
+    t_update_step_list = []
+    t_update_interm_list = []
+    t_update_total_list = []
+
+    L_train_track = []
+    L_base_track = []
+    loss_track = []
+
+    total_L_train_track = []
+    total_L_base_track = []
+    total_loss_track = []
 
     model.train()
     baseline.train()
     for i, full_data in enumerate(train_loader):
+
+        t_one_batch_start = time()
         
         tour_list = []
         tour_b_list = []
@@ -229,7 +266,10 @@ def train_rl():
         mems_b = tuple()
 
         for j, data in enumerate(train_loader.get_split_iter(full_data)):
+            t_model_forward_start = time()
             ret = model(data, None, mask, *mems)
+            t_model_forward_dur = time() - t_model_forward_start
+            t_model_forward_list.append(t_model_forward_dur)
             tour, sum_log_probs, probs_cat, mask, mems = ret
 
             with torch.no_grad(): 
@@ -238,7 +278,11 @@ def train_rl():
             
             # Update model using step tour
             if args.update_step:
-                update_model(tour, tour_b, sum_log_probs, full_data)
+                dur, L_train, L_base, loss = update_model(tour, tour_b, sum_log_probs, full_data)
+                t_update_step_list.append(dur)
+                L_train_track.append(L_train)
+                L_base_track.append(L_base)
+                loss_track.append(loss)
 
             tour_list.append(tour)
             tour_cat = torch.cat(tour_list, dim=1)
@@ -250,19 +294,60 @@ def train_rl():
 
             # Update model using intermediate tour
             if args.update_intermediate and j != 0:
-                update_model(tour_cat, tour_b_cat, sum_log_probs_total, full_data)
+                dur, _, _, _ = update_model(tour_cat, tour_b_cat, sum_log_probs_total, full_data)
+                t_update_interm_list.append(dur)
+
             
 
         # End of Inner Loop (Full Data) #
         # Update model using complete tour
         if args.update_total and not args.update_intermediate:
-            update_model(tour_cat, tour_b_cat, sum_log_probs_total, full_data)
+            dur, L_train, L_base, loss = update_model(tour_cat, tour_b_cat, sum_log_probs_total, full_data)
+            t_update_total_list.append(dur)
+            total_L_train_track.append(L_train)
+            total_L_base_track.append(L_base)
+            total_loss_track.append(loss)
 
         if i % args.log_interval == 0:
-            #TODO:
-            pass
+            t_one_batch = time() - t_one_batch_start
+            t_model_forward_mean = np.mean(t_model_forward_list)
+            t_update_step = np.mean(t_update_step_list)
+            t_update_interm = np.mean(t_update_interm_list)
+            t_update_total = np.mean(t_update_total_list)
+            mean_tour_train_step = np.mean(L_train_track)
+            mean_tour_base_step = np.mean(L_base_track)
+            mean_loss_track_step = np.mean(loss_track)
+            mean_tour_train_total = np.mean(total_L_train_track)
+            mean_tour_base_total = np.mean(total_L_base_track)
+            mean_loss_track_total = np.mean(total_loss_track)
+            
+            log('#' * 100)
+            log_str = f'Train Log -- (Step:{i}) | Step Duration {t_one_batch:.3f}s | Mean Forward Time {t_model_forward_mean:.3f}'
+            if args.update_step:
+                log_str += f'\n>> Step Backward Time {t_update_step:.3f}s | Mean L_train {mean_tour_train_step:.5f} | Mean L_base {mean_tour_base_step:.5f} | Mean Train Loss {mean_loss_track_step:.5f}'
+            if args.update_intermediate:
+                log_str += f'\n>> Intermediate Backward time {t_update_interm:.3f}'
+            if args.update_total:
+                log_str += f'\n>> Total Backward Time {t_update_total:.3f} | Mean L_train {mean_tour_train_total:.5f} | Mean L_base {mean_tour_base_total:.5f} | Mean Train Loss {mean_loss_track_total:.5f}'
+            log(log_str)
+            log('#' * 100)
     # End of Outer Loop (Epoch) #
+    t_epoch = t_epoch_start - time()
     eval_rl()
+    return t_epoch
 
-for e in range(args.n_epoch):
-    train_rl()
+
+try:
+    t_train_start = time()
+    for e in range(args.n_epoch):
+        t_epoch = train_rl()
+        log('@' * 100)
+        log(f'Epoch {e} has been ended. Duration: {t_epoch:.3f}s')
+        log('@' * 100)
+    t_train = time() - t_train_start()
+    log('$' * 100)
+    log(f'Train has been ended. Duration: {t_train:.3f}s')
+    log('$' * 100)
+    
+except KeyboardInterrupt:
+    log('Training has been stopped early')
