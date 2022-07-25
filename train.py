@@ -1,28 +1,34 @@
 """
 
 """
-from argparse import ArgumentError
-import os, shutil
-import time
+from configs.default_rl import args
+import os
+if args.cuda:
+    assert len(args.gpu_id) > 0
+    if args.multi_gpu:
+        assert len(args.gpu_id) >= 2
+    else:
+        assert len(args.gpu_id) == 1
+    os.environ['CUDA_VISIBLE_DEVICES'] = args.gpu_id
+
+import shutil
 import torch
 import numpy as np
 
 from torch import nn, optim
+from time import time
 from models.model import TSPXL
-from configs.default_rl import args
 from utils.exp_utils import create_exp_dir
 from utils.data_utils import RandomTSPGenerator, TSPDataset
 
-# Set seed, cuda, directory, etc.
+# Set seed and cuda
 torch.manual_seed(args.seed)
 np.random.seed(args.seed)
 
 if args.cuda and torch.cuda.is_available():
-    os.environ['CUDA_VISIBLE_DEVICE'] = args.gpu_id
     device = torch.device('cuda')
-    print(f'Total {torch.cuda.device_count()} GPUs in USE : total')
-    for i in range(torch.cuda.device_count()):
-        print(f'<< GPU : {torch.cuda.get_device_name(i)}, id: {args.gpu_id} >>')
+    print(f'Total {torch.cuda.device_count()} GPUs in USE')
+    print(f'<< GPU : {torch.cuda.get_device_name()}, id: {args.gpu_id} >>')
 else:
     device = torch.device('cpu')
 
@@ -32,7 +38,8 @@ log = create_exp_dir(args.exp_dir, scripts_to_save, args.debug)
 
 # Load Dataset and iterator
 if args.rl:
-    data_loader = RandomTSPGenerator(segm_len=args.segm_len)
+    train_loader = RandomTSPGenerator(bsz=args.bsz, total_len=args.n_point, max_step=args.rl_maxstep, device=device, segm_len=args.segm_len)
+    val_loader = RandomTSPGenerator(bsz=args.bsz, total_len=args.n_point, max_step=args.rl_eval_maxstep, device=device, segm_len=args.segm_len)
 else:
     if args.n_point >= 50:
         train_set = TSPDataset(n=args.n_point, mode='train', root_dir=args.data_root, author=args.data_source, device=device, segm_len=args.segm_len)
@@ -42,7 +49,6 @@ else:
         train_set = TSPDataset(n=args.n_point, mode='train', root_dir=args.data_root, author=args.data_source, device=device, segm_len=args.segm_len)
         val_set = TSPDataset(n=args.n_point, mode='val', root_dir=args.data_root, author=args.data_source, device=device, segm_len=args.segm_len)
         test_set = TSPDataset(n=args.n_point, mode='test', root_dir=args.data_root, author=args.data_source, device=device, segm_len=args.segm_len)
-    pass
     
 # Load hyperparameters
 if args.rl and args.loss_fn in ['nll', 'ce', 'mse']:
@@ -63,50 +69,52 @@ else:
     elif args.loss_fn == 'mse':
         criterion = nn.MSELoss
 
-# Optimizer
-if args.optim == 'sgd':
-    optimizer = optim.SGD
-elif args.optim == 'rmsprop':
-    optimizer = optim.RMSprop
-elif args.optim == 'adam':
-    optimizer = optim.Adam
-else:
-    raise ValueError("Proper optimizer should be provided")
-
 # Build model
 model = TSPXL(
     d_model=args.d_model,
     d_ff=args.d_ff,
     n_head=args.n_head,
-    n_layer=args.n_layer,
+    n_enc_layer=args.n_enc_layer,
+    n_dec_layer=args.n_dec_layer,
     n_class=args.n_point,
     bsz=args.bsz,
     deterministic=args.deterministic,
     criterion=criterion,
-    optimizer=optimizer,
     dropout_rate=args.dropout_rate,
     internal_drop=args.internal_drop,
     clip_value=args.clip_value,
     pre_lnorm=args.pre_lnorm,
-    clamp_len=args.clamp_len
+    clamp_len=args.clamp_len,
+    rl=args.rl
 )
 if args.rl:
     baseline = TSPXL(
     d_model=args.d_model,
     d_ff=args.d_ff,
     n_head=args.n_head,
-    n_layer=args.n_layer,
+    n_enc_layer=args.n_enc_layer,
+    n_dec_layer=args.n_dec_layer,
     n_class=args.n_point,
     bsz=args.bsz,
     deterministic=args.deterministic,
     criterion=criterion,
-    optimizer=optimizer,
     dropout_rate=args.dropout_rate,
     internal_drop=args.internal_drop,
     clip_value=args.clip_value,
     pre_lnorm=args.pre_lnorm,
-    clamp_len=args.clamp_len        
+    clamp_len=args.clamp_len,
+    rl=args.rl
     )
+
+# Optimizer
+if args.optim == 'sgd':
+    optimizer = optim.SGD(model.parameters(), lr=args.learning_rate)
+elif args.optim == 'rmsprop':
+    optimizer = optim.RMSprop(model.parameters(), lr=args.learning_rate)
+elif args.optim == 'adam':
+    optimizer = optim.Adam(model.parameters(), lr=args.learning_rate)
+else:
+    raise ValueError("Proper optimizer should be provided")
 
 if args.multi_gpu:
     model = nn.DataParallel(model).to(device)
@@ -119,6 +127,7 @@ else:
 
 def compute_tour_length(tour, x): 
     """
+    Original code from : github.com/xbresson
     Compute the length of a batch of tours
     Inputs : x of size (N, B, 2) batch of tsp tour instances
              tour of size (B, N) batch of sequences (node indices) of tsp tours
@@ -126,7 +135,7 @@ def compute_tour_length(tour, x):
     """
     x = x.permute(1,0,2).contiguous()  # (B, N, 2)
     bsz = x.shape[0]
-    nb_nodes = x.shape[1]
+    nb_nodes = tour.shape[1]
     arange_vec = torch.arange(bsz, device=x.device)
     first_cities = x[arange_vec, tour[:,0], :] # size(first_cities)=(bsz,2)
     previous_cities = first_cities
@@ -139,49 +148,121 @@ def compute_tour_length(tour, x):
         L += torch.sum( (current_cities - first_cities)**2 , dim=1 )**0.5 # dist(last, first node)  
     return L
 
-def evaluate():
-    pass
+def update_model(tour, tour_b, sum_log_probs, full_data):
+    optimizer.zero_grad()
+    L_train = compute_tour_length(tour, full_data)
+    L_base = compute_tour_length(tour_b, full_data)
+    loss = model.criterion(L_train, L_base, sum_log_probs)
+    loss.backward()
+    optimizer.step()
+
+def eval_rl():
+
+    L_train_list = []
+    L_base_list = []
+    val_loss_list = []
+
+    eval_start_time = time()
+
+    model.eval()
+    baseline.eval()
+    with torch.no_grad():
+        for i, full_data in enumerate(val_loader):
+
+            tour_list = []
+            tour_b_list = []
+            sum_log_probs_total = 0
+
+            mask = torch.zeros(args.bsz, args.d_model, args.n_point, device=device, dtype=torch.bool)
+            mask_b = torch.zeros(args.bsz, args.d_model, args.n_point, device=device, dtype=torch.bool)
+            mems = tuple()
+            mems_b = tuple()
+
+            for j, data in enumerate(val_loader.get_split_iter(full_data)):
+                ret = model(data, None, mask, *mems)
+                tour, sum_log_probs, probs_cat, mask, mems = ret
+
+                ret_b = baseline(data, None, mask_b, *mems_b)
+                tour_b, mask_b, mems_b = ret_b[0], ret_b[3], ret_b[4]
+            
+                tour_list.append(tour)
+                tour_b_list.append(tour_b)
+                sum_log_probs_total = sum_log_probs_total + sum_log_probs
+            # End of Inner Loop (Full Data) #
+            tour_cat = torch.cat(tour_list, dim=1)
+            tour_b_cat = torch.cat(tour_b_list, dim=1)
+
+            L_train = compute_tour_length(tour_cat, full_data)
+            L_base = compute_tour_length(tour_b_cat, full_data)
+            val_loss = model.criterion(L_train, L_base, sum_log_probs_total)
+        
+        L_train_list.append(L_train.mean().item())
+        L_base_list.append(L_base.mean().item())
+        val_loss_list.append(val_loss.mean().item())
+
+    L_train_mean = np.mean(L_train_list)
+    L_base_mean = np.mean(L_base_list)
+    val_loss_mean = np.mean(val_loss_list)
+
+    dur = time() - eval_start_time
+
+    log('#' * 100)
+    log_str = f'Eval ({args.rl_eval_maxstep}) - Time {dur}s | Mean L_train {L_train_mean} | Mean L_base {L_base_mean} | Mean Valid Loss {val_loss_mean}'
+    log(log_str)
+    log('#' * 100)
+
+
 def train_rl():
-    L_train_total = 0
-    L_base_total = 0
-    sum_log_probs_total = []
-    for i, (data, done) in enumerate(data_loader):
-        model.zero_grad()
-        ret = model(data)
-        tour, sum_log_probs, probs_cat, new_mems = ret
+    torch.autograd.set_detect_anomaly(True)
 
-        with torch.no_grad(): 
-            ret_b = baseline(data)
-            tour_b = ret_b[0]
+    model.train()
+    baseline.train()
+    for i, full_data in enumerate(train_loader):
+        
+        tour_list = []
+        tour_b_list = []
+        sum_log_probs_total = 0
+    
+        mask = torch.zeros(args.bsz, args.d_model, args.n_point, device=device, dtype=torch.bool)
+        mask_b = torch.zeros(args.bsz, args.d_model, args.n_point, device=device, dtype=torch.bool)
+        mems = tuple()
+        mems_b = tuple()
 
-        L_train_part = compute_tour_length(tour, data)
-        L_base_part = compute_tour_length(tour_b, data)
+        for j, data in enumerate(train_loader.get_split_iter(full_data)):
+            ret = model(data, None, mask, *mems)
+            tour, sum_log_probs, probs_cat, mask, mems = ret
 
-        loss = model.criterion(L_train_part, L_base_part, sum_log_probs)
-        loss.backward()
-        model.optimizer.step()
+            with torch.no_grad(): 
+                ret_b = baseline(data, None, mask_b, *mems_b)
+                tour_b, mask_b, mems_b = ret_b[0], ret_b[3], ret_b[4]
+            
+            # Update model using step tour
+            if args.update_step:
+                update_model(tour, tour_b, sum_log_probs, full_data)
 
-        L_train_total += L_train_part
-        L_base_total += L_base_part
-        sum_log_probs_total.append(sum_log_probs)
-        sum_log_probs_total = torch.cat(sum_log_probs_total, dim=0)
+            tour_list.append(tour)
+            tour_cat = torch.cat(tour_list, dim=1)
 
-        if args.update_intermediate:
-            model.zero_grad()
-            loss = model.criterion(L_train_total, L_base_total, sum_log_probs_total)
-            loss.backward()
-            model.optimizer.step()
+            tour_b_list.append(tour_b)
+            tour_b_cat = torch.cat(tour_b_list, dim=1)
 
-        if done:
-            if args.update_total:
-                model.zero_grad()
-                loss = model.criterion(L_train_total, L_base_total, sum_log_probs_total)
-                loss.backward()
-                model.optimizer.step()
-            L_train_total = 0
-            L_base_total = 0
-            sum_log_probs = []
+            sum_log_probs_total = sum_log_probs_total + sum_log_probs
 
-            if i % args.eval_interval:
-                pass
+            # Update model using intermediate tour
+            if args.update_intermediate and j != 0:
+                update_model(tour_cat, tour_b_cat, sum_log_probs_total, full_data)
+            
 
+        # End of Inner Loop (Full Data) #
+        # Update model using complete tour
+        if args.update_total and not args.update_intermediate:
+            update_model(tour_cat, tour_b_cat, sum_log_probs_total, full_data)
+
+        if i % args.log_interval == 0:
+            #TODO:
+            pass
+    # End of Outer Loop (Epoch) #
+    eval_rl()
+
+for e in range(args.n_epoch):
+    train_rl()
