@@ -3,7 +3,7 @@ import torch
 from torch.utils.data import Dataset
 
 class RandomTSPGenerator:
-    def __init__(self, bsz, total_len, max_step, device='cpu', ext_len=None, segm_len=-1):
+    def __init__(self, bsz, total_len, max_step, device='cpu', segm_len=-1):
         self.bsz = bsz
         self.max_step = max_step
         self.total_len = total_len
@@ -15,28 +15,24 @@ class RandomTSPGenerator:
         batch = torch.rand(self.total_len, self.bsz, 2).to(self.device)  # (N, B, 2)
         return batch
 
-    def get_split_iter(self):
-        for i in range(self.max_step):
-            batch = self.make_batch()
+    def get_split_iter(self, batch):
             n_segm = batch.size(1) // self.segm_len
-            for j in range(0, batch.size(1), self.segm_len):
+            for j in range(0, self.total_len, self.segm_len):
                 try:
-                    yield self.segm_len, batch[:,j:j+self.segm_len,:]
+                    yield batch[j:j+self.segm_len,:,:]
                 except IndexError:
-                    yield batch.size(1) - j, batch[:,j:j+self.segm_len,:]
+                    yield batch[j:j+self.segm_len,:,:]
+                
 
     def get_fixlen_iter(self):
         for i in range(self.max_step):
-            yield self.get_batch()
+            yield self.make_batch()
 
     def get_varlen_iter(self):
         raise NotImplementedError
 
     def __iter__(self):
-        if self.segm_len > 0:
-            return self.get_split_iter()
-        else:
-            return self.get_fixlen_iter()
+        return self.get_fixlen_iter()
 
 
 class TSPDataset(Dataset):
