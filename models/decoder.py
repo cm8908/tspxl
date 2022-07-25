@@ -1,8 +1,11 @@
 import torch
 from torch import nn
-from attention import MultiHeadSelfAttn, RelMultiHeadAttn
+from models.attention import MultiHeadSelfAttn, RelMultiHeadAttn
 
 class PositionalEmbedding(nn.Module):
+    """
+    Original code from : github.com/kimiyoung
+    """
     def __init__(self, demb):
         super(PositionalEmbedding, self).__init__()
 
@@ -19,6 +22,17 @@ class PositionalEmbedding(nn.Module):
             return pos_emb[:,None,:].expand(-1, bsz, -1)
         else:
             return pos_emb[:,None,:]
+
+class FFN(nn.Module):
+    def __init__(self, d_model, d_ff, dropout_rate):
+        super().__init__()
+        self.l1 = nn.Linear(d_model, d_ff)
+        self.l2 = nn.Linear(d_ff, d_model)
+        self.drop = nn.Dropout(dropout_rate)
+    def forward(self, x):
+        x = self.drop(torch.relu(self.l1(x)))
+        x = self.drop(self.l2(x))
+        return x
 
 class DecoderLayer(nn.Module):
     """
@@ -50,11 +64,12 @@ class DecoderLayer(nn.Module):
         self.norm3 = nn.LayerNorm(d_model)
         self.dropout = nn.Dropout(dropout_rate)
 
-        self.FFN = nn.Sequential(
-            nn.Linear(d_model, d_ff), nn.ReLU(inplace=True),
-            nn.Dropout(dropout_rate), nn.Linear(d_ff, d_model),
-            nn.Dropout(dropout_rate)
-        )
+        self.FFN = FFN(d_model, d_ff, dropout_rate)
+        # self.FFN = nn.Sequential(
+        #     nn.Linear(d_model, d_ff), nn.ReLU(inplace=True),
+        #     nn.Dropout(dropout_rate), nn.Linear(d_ff, d_model),
+        #     nn.Dropout(dropout_rate)
+        # )
         pass
 
     def forward(self, h_t, r, bias_u, bias_v, mask, mem):
@@ -68,6 +83,7 @@ class DecoderLayer(nn.Module):
         Outputs:
             h_t : (1, B, H)
         """
+        torch.autograd.set_detect_anomaly(True)
         # Self-Attention Weights
         q_sa = self.Wq_sa(h_t)  # (1, B, H)
         k_sa = self.Wk_sa(h_t)  # (1, B, H)
@@ -76,8 +92,8 @@ class DecoderLayer(nn.Module):
             self.K_sa = k_sa
             self.V_sa = v_sa
         else:
-            self.K_sa = torch.cat([self.K_sa, k_sa], dim=0)  # (+, B, H)
-            self.V_sa = torch.cat([self.V_sa, k_sa], dim=0)  # (+, B, H)
+            self.K_sa = torch.cat([self.K_sa, k_sa], dim=0)  # (1~N B, H)
+            self.V_sa = torch.cat([self.V_sa, k_sa], dim=0)  # (1~N B, H)
         
         # Multi-Head Self-Attention
         out = self.MHSA(q_sa, self.K_sa, self.V_sa)  # size(out)=(1, B, H)
@@ -133,7 +149,7 @@ class TSPDecoder(nn.Module):
     def __init__(self, d_model, d_ff, n_layer, n_head, n_class, clamp_len, bsz, dropout_rate, internal_drop, clip_value, pre_lnorm):
         
         assert (internal_drop > 0 and internal_drop < 1) or internal_drop == -1, 'Dropout ratio must be in range (0,1). -1 to be disabled'
-        assert (clip_value > 0 and clip_value < 1) or clip_value == -1, 'Clip value must in range (0,1). -1 to be disabled'
+        assert (clip_value > 0) or clip_value == -1, 'Clip value must be bigger than 0. Set -1 to be disabled'
         assert d_model % n_head == 0, 'd_model should be dividable by n_head'
 
         super().__init__()
@@ -152,7 +168,12 @@ class TSPDecoder(nn.Module):
         self.classifier = nn.Parameter(torch.randn(bsz, d_model, n_class))
         pass
 
-    def forward(self, h_t, mask, mems=None):
+    def reset_KV_sa(self):
+        for layer in self.layers:
+            layer.K_sa = None
+            layer.V_sa = None
+
+    def forward(self, h_t, mask, *mems):
         """
         Inputs:
             h_t : t-th token of current segment  # size=(1, B, H)
