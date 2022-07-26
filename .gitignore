@@ -15,3 +15,15 @@ utils/__pycache__/exp_utils.cpython-310.pyc
 temp.ipynb
 viz.png
 viz
+configs/__pycache__/default_rl_step.cpython-310.pyc
+configs/__pycache__/__init__.cpython-310.pyc
+legacy/models_07_26/__init__.py
+legacy/models_07_26/attention.py
+legacy/models_07_26/decoder.py
+legacy/models_07_26/encoder.py
+legacy/models_07_26/model.py
+legacy/models_07_26/__pycache__/__init__.cpython-310.pyc
+legacy/models_07_26/__pycache__/attention.cpython-310.pyc
+legacy/models_07_26/__pycache__/decoder.cpython-310.pyc
+legacy/models_07_26/__pycache__/encoder.cpython-310.pyc
+legacy/models_07_26/__pycache__/model.cpython-310.pyc
