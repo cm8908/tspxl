@@ -161,16 +161,13 @@ def compute_tour_length(tour, x):
         L += torch.sum( (current_cities - first_cities)**2 , dim=1 )**0.5 # dist(last, first node)  
     return L
 
-def update_model(tour, tour_b, sum_log_probs, full_data, done=False):
+def update_model(tour, tour_b, sum_log_probs, data, done=False):
     start = time()
     optimizer.zero_grad()
-    L_train = compute_tour_length(tour, full_data)
-    L_base = compute_tour_length(tour_b, full_data)
+    L_train = compute_tour_length(tour, data)
+    L_base = compute_tour_length(tour_b, data)
     loss = model.criterion(L_train, L_base, sum_log_probs)
-    if args.update_step and not done:
-        loss.backward(retain_graph=True)
-    else:
-        loss.backward()
+    loss.backward()
     optimizer.step()
     dur = time() - start
     return dur, L_train.mean().item(), L_base.mean().item(), loss.mean().item()
@@ -194,17 +191,15 @@ def eval_rl():
             tour_b_list = []
             sum_log_probs_total = 0
 
-            mask = torch.zeros(args.bsz, args.d_model, args.n_point, device=device, dtype=torch.bool)
-            mask_b = torch.zeros(args.bsz, args.d_model, args.n_point, device=device, dtype=torch.bool)
             mems = tuple()
             mems_b = tuple()
 
             for j, (data, _) in enumerate(val_loader.get_split_iter(full_data)):
-                ret = model(data, None, mask, *mems)
-                tour, sum_log_probs, probs_cat, mask, mems = ret
+                ret = model(data, None, *mems)
+                tour, sum_log_probs, probs_cat, mems = ret
 
-                ret_b = baseline(data, None, mask_b, *mems_b)
-                tour_b, mask_b, mems_b = ret_b[0], ret_b[3], ret_b[4]
+                ret_b = baseline(data, None, *mems_b)
+                tour_b, _, _, mems_b = ret_b
             
                 tour_list.append(tour)
                 tour_b_list.append(tour_b)
@@ -256,7 +251,7 @@ def train_rl():
 
     t_model_forward_list = []
     t_update_step_list = []
-    t_update_interm_list = []
+    t_update_interm_list = []  # Save intermediate update?
     t_update_total_list = []
 
     L_train_track = []
@@ -277,25 +272,23 @@ def train_rl():
         tour_b_list = []
         sum_log_probs_total = 0
     
-        mask = torch.zeros(args.bsz, args.d_model, args.n_point, device=device, dtype=torch.bool)
-        mask_b = torch.zeros(args.bsz, args.d_model, args.n_point, device=device, dtype=torch.bool)
         mems = tuple()
         mems_b = tuple()
 
         for j, (data, done) in enumerate(train_loader.get_split_iter(full_data)):
             t_model_forward_start = time()
-            ret = model(data, None, mask, *mems)
+            ret = model(data, None, *mems)
             t_model_forward_dur = time() - t_model_forward_start
             t_model_forward_list.append(t_model_forward_dur)
-            tour, sum_log_probs, probs_cat, mask, mems = ret
+            tour, sum_log_probs, _, mems = ret
 
             with torch.no_grad(): 
-                ret_b = baseline(data, None, mask_b, *mems_b)
-                tour_b, mask_b, mems_b = ret_b[0], ret_b[3], ret_b[4]
+                ret_b = baseline(data, None, *mems_b)
+                tour_b, _, _, mems_b = ret_b
             
             # Update model using step tour
             if args.update_step:
-                dur, L_train, L_base, loss = update_model(tour, tour_b, sum_log_probs, full_data, done)
+                dur, L_train, L_base, loss = update_model(tour, tour_b, sum_log_probs, data, done)
                 t_update_step_list.append(dur)
                 L_train_track.append(L_train)
                 L_base_track.append(L_base)
@@ -310,16 +303,16 @@ def train_rl():
             sum_log_probs_total = sum_log_probs_total + sum_log_probs
 
             # Update model using intermediate tour
-            if args.update_intermediate and j != 0:
-                dur, _, _, _ = update_model(tour_cat, tour_b_cat, sum_log_probs_total, full_data, done)
-                t_update_interm_list.append(dur)
+            # if args.update_intermediate and j != 0:
+            #     dur, _, _, _ = update_model(tour_cat, tour_b_cat, sum_log_probs_total, full_data, done)
+            #     t_update_interm_list.append(dur)
 
-            
+        # TODO: aggregate each partial tours            
 
         # End of Inner Loop (Full Data) #
         # Update model using complete tour
         if args.update_total and not args.update_intermediate:
-            dur, L_train, L_base, loss = update_model(tour_cat, tour_b_cat, sum_log_probs_total, full_data)
+            dur, L_train, L_base, loss = update_model(tour_cat, tour_b_cat, sum_log_probs_total, data)
             t_update_total_list.append(dur)
             total_L_train_track.append(L_train)
             total_L_base_track.append(L_base)
