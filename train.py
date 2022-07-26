@@ -26,7 +26,7 @@ from time import time
 from datetime import datetime
 from models.model import TSPXL
 from utils.exp_utils import create_exp_dir, save_checkpoint
-from utils.data_utils import RandomTSPGenerator, TSPDataset
+from utils.data_utils import RandomTSPGenerator, SortedTSPGenerator, TSPDataset
 
 # Set seed and cuda
 torch.manual_seed(args.seed)
@@ -48,8 +48,8 @@ log('&' * 100)
 
 # Load Dataset and iterator
 if args.rl:
-    train_loader = RandomTSPGenerator(bsz=args.bsz, total_len=args.n_point, max_step=args.rl_maxstep, device=device, segm_len=args.segm_len)
-    val_loader = RandomTSPGenerator(bsz=args.bsz, total_len=args.n_point, max_step=args.rl_eval_maxstep, device=device, segm_len=args.segm_len)
+    train_loader = SortedTSPGenerator(bsz=args.bsz, total_len=args.n_point, max_step=args.rl_maxstep, device=device, segm_len=args.segm_len)
+    val_loader = SortedTSPGenerator(bsz=args.bsz, total_len=args.n_point, max_step=args.rl_eval_maxstep, device=device, segm_len=args.segm_len)
 else:
     if args.n_point >= 50:
         train_set = TSPDataset(n=args.n_point, mode='train', root_dir=args.data_root, author=args.data_source, device=device, segm_len=args.segm_len)
