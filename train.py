@@ -6,7 +6,8 @@ from argparse import ArgumentParser
 parser = ArgumentParser()
 parser.add_argument('-c', dest='config_name', type=str, help='Choose hyperparameter configuration file')
 cmd_args = parser.parse_args()
-args = importlib.import_module(cmd_args.config).args
+args = importlib.import_module('configs.'+cmd_args.config_name).args
+print('Importing configurations from', cmd_args.config_name)
 # from configs.default_rl_step import args
 
 import os
@@ -42,9 +43,9 @@ else:
 # Set logger
 scripts_to_save = ['train.py', 'models']
 log = create_exp_dir(args.exp_dir, scripts_to_save, args.debug)
-log('&' * 100)
+log('$' * 100)
 log('Program started at ' + datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
-log('&' * 100)
+log('$' * 100)
 
 # Load Dataset and iterator
 if args.rl:
@@ -178,6 +179,7 @@ def update_model(tour, tour_b, sum_log_probs, full_data, done=False):
 min_tour_length = None
 
 def eval_rl():
+    global min_tour_length
 
     L_train_list = []
     L_base_list = []
@@ -231,7 +233,7 @@ def eval_rl():
     if L_train_mean + args.tol < L_base_mean:
         baseline.load_state_dict(model.state_dict())
         log('@' * 100)
-        log('Baseline has been updated. Mean L_train', L_train_mean)
+        log('Baseline has been updated. Mean L_train '+str(L_train_mean))
         log('@' * 100)
 
     # Save model if shorted tour length
@@ -239,7 +241,7 @@ def eval_rl():
         min_tour_length = L_train_mean
         save_checkpoint(model, optimizer, args.exp_dir, e)
         log('@' * 100)
-        log('Model has been saved. Min Mean L_train', min_tour_length)
+        log('Model has been saved. Min Mean L_train '+str(min_tour_length))
         log('@' * 100)
 
 

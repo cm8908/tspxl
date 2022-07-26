@@ -15,7 +15,7 @@ args.update_total = True  # choose either
 
 # Experimental #
 args.debug = False
-args.exp_dir = 'logs/07_25'
+args.exp_dir = 'logs/default_rl'
 args.seed = 1234
 args.log_interval = 500
 
