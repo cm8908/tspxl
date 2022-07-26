@@ -37,7 +37,11 @@ def create_exp_dir(dir_path, scripts_to_save=None, debug=False):
             if os.path.isfile(script):
                 shutil.copyfile(script, dst_file)
             elif os.path.isdir(script):
-                shutil.copytree(script, dst_file)
+                try:
+                    shutil.copytree(script, dst_file)
+                except FileExistsError:
+                    shutil.rmtree(dst_file)
+                    shutil.copytree(script, dst_file)
 
     return get_logger(log_path=os.path.join(dir_path, 'log.txt'))
 

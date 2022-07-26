@@ -1,7 +1,14 @@
 """
 
 """
-from configs.default_rl import args
+import importlib
+from argparse import ArgumentParser
+parser = ArgumentParser()
+parser.add_argument('-c', dest='config_name', type=str, help='Choose hyperparameter configuration file')
+cmd_args = parser.parse_args()
+args = importlib.import_module(cmd_args.config).args
+# from configs.default_rl_step import args
+
 import os
 if args.cuda:
     assert len(args.gpu_id) > 0
@@ -11,12 +18,12 @@ if args.cuda:
         assert len(args.gpu_id) == 1
     os.environ['CUDA_VISIBLE_DEVICES'] = args.gpu_id
 
-import shutil
 import torch
 import numpy as np
 
 from torch import nn, optim
 from time import time
+from datetime import datetime
 from models.model import TSPXL
 from utils.exp_utils import create_exp_dir, save_checkpoint
 from utils.data_utils import RandomTSPGenerator, TSPDataset
@@ -35,6 +42,9 @@ else:
 # Set logger
 scripts_to_save = ['train.py', 'models']
 log = create_exp_dir(args.exp_dir, scripts_to_save, args.debug)
+log('&' * 100)
+log('Program started at ' + datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
+log('&' * 100)
 
 # Load Dataset and iterator
 if args.rl:
@@ -55,6 +65,9 @@ if args.rl and args.loss_fn in ['nll', 'ce', 'mse']:
     raise ValueError(f'Criterion `{args.loss_fn}` is not a valid method for RL')
 if not args.rl and args.loss_fn in ['reinforce']:
     raise ValueError(f'Criterion `{args.loss_fn}` is not a valid method for SL')
+
+if int(args.update_step) + int(args.update_intermediate) + int(args.update_total) > 2:
+    raise ValueError(f'You can select only one update mechanism')
 
 # Criterion
 if args.rl:
@@ -148,13 +161,16 @@ def compute_tour_length(tour, x):
         L += torch.sum( (current_cities - first_cities)**2 , dim=1 )**0.5 # dist(last, first node)  
     return L
 
-def update_model(tour, tour_b, sum_log_probs, full_data):
+def update_model(tour, tour_b, sum_log_probs, full_data, done=False):
     start = time()
     optimizer.zero_grad()
     L_train = compute_tour_length(tour, full_data)
     L_base = compute_tour_length(tour_b, full_data)
     loss = model.criterion(L_train, L_base, sum_log_probs)
-    loss.backward()
+    if args.update_step and not done:
+        loss.backward(retain_graph=True)
+    else:
+        loss.backward()
     optimizer.step()
     dur = time() - start
     return dur, L_train.mean().item(), L_base.mean().item(), loss.mean().item()
@@ -183,7 +199,7 @@ def eval_rl():
             mems = tuple()
             mems_b = tuple()
 
-            for j, data in enumerate(val_loader.get_split_iter(full_data)):
+            for j, (data, _) in enumerate(val_loader.get_split_iter(full_data)):
                 ret = model(data, None, mask, *mems)
                 tour, sum_log_probs, probs_cat, mask, mems = ret
 
@@ -234,7 +250,8 @@ def eval_rl():
 
 
 def train_rl():
-    # torch.autograd.set_detect_anomaly(True)
+    if args.debug:
+        torch.autograd.set_detect_anomaly(True)
     t_epoch_start = time()
 
     t_model_forward_list = []
@@ -265,7 +282,7 @@ def train_rl():
         mems = tuple()
         mems_b = tuple()
 
-        for j, data in enumerate(train_loader.get_split_iter(full_data)):
+        for j, (data, done) in enumerate(train_loader.get_split_iter(full_data)):
             t_model_forward_start = time()
             ret = model(data, None, mask, *mems)
             t_model_forward_dur = time() - t_model_forward_start
@@ -278,7 +295,7 @@ def train_rl():
             
             # Update model using step tour
             if args.update_step:
-                dur, L_train, L_base, loss = update_model(tour, tour_b, sum_log_probs, full_data)
+                dur, L_train, L_base, loss = update_model(tour, tour_b, sum_log_probs, full_data, done)
                 t_update_step_list.append(dur)
                 L_train_track.append(L_train)
                 L_base_track.append(L_base)
@@ -294,7 +311,7 @@ def train_rl():
 
             # Update model using intermediate tour
             if args.update_intermediate and j != 0:
-                dur, _, _, _ = update_model(tour_cat, tour_b_cat, sum_log_probs_total, full_data)
+                dur, _, _, _ = update_model(tour_cat, tour_b_cat, sum_log_probs_total, full_data, done)
                 t_update_interm_list.append(dur)
 
             
@@ -324,11 +341,11 @@ def train_rl():
             log('#' * 100)
             log_str = f'Train Log -- (Step:{i}) | Step Duration {t_one_batch:.3f}s | Mean Forward Time {t_model_forward_mean:.3f}'
             if args.update_step:
-                log_str += f'\n>> Step Backward Time {t_update_step:.3f}s | Mean L_train {mean_tour_train_step:.5f} | Mean L_base {mean_tour_base_step:.5f} | Mean Train Loss {mean_loss_track_step:.5f}'
+                log_str += f'\n\tStep Backward Time {t_update_step:.3f}s | Mean L_train {mean_tour_train_step:.5f} | Mean L_base {mean_tour_base_step:.5f} | Mean Train Loss {mean_loss_track_step:.5f}'
             if args.update_intermediate:
-                log_str += f'\n>> Intermediate Backward time {t_update_interm:.3f}'
+                log_str += f'\n\tIntermediate Backward time {t_update_interm:.3f}'
             if args.update_total:
-                log_str += f'\n>> Total Backward Time {t_update_total:.3f} | Mean L_train {mean_tour_train_total:.5f} | Mean L_base {mean_tour_base_total:.5f} | Mean Train Loss {mean_loss_track_total:.5f}'
+                log_str += f'\n\tTotal Backward Time {t_update_total:.3f} | Mean L_train {mean_tour_train_total:.5f} | Mean L_base {mean_tour_base_total:.5f} | Mean Train Loss {mean_loss_track_total:.5f}'
             log(log_str)
             log('#' * 100)
     # End of Outer Loop (Epoch) #
@@ -336,6 +353,12 @@ def train_rl():
     eval_rl()
     return t_epoch
 
+# TODO:
+
+def eval_sl():
+    pass
+def train_sl():
+    pass
 
 try:
     t_train_start = time()

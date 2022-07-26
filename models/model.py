@@ -42,7 +42,7 @@ class TSPXL(nn.Module):
     def _init_mems(self):
         mems = []
         param = next(self.parameters())
-        for i in range(self.n_layer + 1):
+        for i in range(self.n_dec_layer + 1):
             empty = torch.empty(0, dtype=param.dtype, device=param.device)
             mems.append(empty)
         return mems
@@ -91,7 +91,7 @@ class TSPXL(nn.Module):
         # Decode it !
         self.decoder.reset_KV_sa()
         for t in range(segment_len):
-            h_t = h_enc[t:t+1]
+            h_t = h_enc[t:t+1]  
 
             if not mems: mems = self._init_mems()
             '''

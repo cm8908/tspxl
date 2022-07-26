@@ -83,7 +83,6 @@ class DecoderLayer(nn.Module):
         Outputs:
             h_t : (1, B, H)
         """
-        torch.autograd.set_detect_anomaly(True)
         # Self-Attention Weights
         q_sa = self.Wq_sa(h_t)  # (1, B, H)
         k_sa = self.Wk_sa(h_t)  # (1, B, H)
@@ -204,7 +203,7 @@ class TSPDecoder(nn.Module):
             self.classifier.data = self.classifier.masked_fill(mask, 0)  # (H, nc)
 
         h_t = h_t.permute(1, 0, 2).contiguous()  # (B, 1, H)
-        logit = torch.bmm(h_t, self.classifier)  # (B, 1, nc)
+        logit = torch.bmm(h_t, self.classifier)  # (B, 1, H) x (B, H, nc) => (B, 1, nc)
         probs = torch.softmax(logit, dim=-1)  # (B, 1, nc)
 
         # update memory

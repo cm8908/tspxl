@@ -18,10 +18,11 @@ class RandomTSPGenerator:
     def get_split_iter(self, batch):
             n_segm = batch.size(1) // self.segm_len
             for j in range(0, self.total_len, self.segm_len):
+                done = j == self.total_len // self.segm_len - 1
                 try:
-                    yield batch[j:j+self.segm_len,:,:]
+                    yield batch[j:j+self.segm_len,:,:], done
                 except IndexError:
-                    yield batch[j:j+self.segm_len,:,:]
+                    yield batch[j:j+self.segm_len,:,:], True
                 
 
     def get_fixlen_iter(self):

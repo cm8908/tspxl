@@ -9,19 +9,19 @@ args.loss_fn = 'reinforce'
 args.optim = 'adam'
 args.learning_rate = 0.0001
 args.tol = 0.001
-args.update_step = False  # choose either
+args.update_step = True  # choose either
 args.update_intermediate = False  # choose either
-args.update_total = True  # choose either
+args.update_total = False  # choose either
 
 # Experimental #
 args.debug = False
-args.exp_dir = 'logs/07_25'
+args.exp_dir = 'logs/07_25-step'
 args.seed = 1234
 args.log_interval = 500
 
 # GPU #
 args.cuda = True
-args.gpu_id = "7"
+args.gpu_id = "6"
 args.multi_gpu = False  # currently not compatible with self.parameters()
 
 # Data-Related #
