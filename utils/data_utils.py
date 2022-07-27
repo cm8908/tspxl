@@ -43,7 +43,7 @@ class SortedTSPGenerator(RandomTSPGenerator):
 
     def sort(self, x):
         '''x: (N, B, 2) '''
-        xn = x.numpy()
+        xn = x.cpu().numpy()
         xy = xn[:,:,0] + xn[:,:,1]  # (N, B)
         idx_origin = np.arange(x.shape[0])
         xy_srt =  np.sort(xy, axis=0)[::-1]  # (N, B)
@@ -54,7 +54,7 @@ class SortedTSPGenerator(RandomTSPGenerator):
             xn_srt = np.array([xn[i,b,:] for i in idx_srt])
             res.append(xn_srt)
         res = np.stack(res, axis=1)  # (N, B, 2)
-        return torch.Tensor(res)
+        return torch.from_numpy(res).to(x.device)
 
     def get_sorted_iter(self):
         for i in range(self.max_step):

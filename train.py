@@ -44,9 +44,9 @@ else:
 # Set logger
 scripts_to_save = ['train.py', 'models']
 log = create_exp_dir(args.exp_dir, scripts_to_save, args.debug)
-log('&' * 100)
+log('$' * 100)
 log('Program started at ' + datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
-log('&' * 100)
+log('$' * 100)
 
 # Load Dataset and iterator
 if args.rl:
