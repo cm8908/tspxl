@@ -1,6 +1,6 @@
 import torch
 from torch import nn
-from models.attention import MultiHeadSelfAttn, RelMultiHeadAttn
+from .attention import MultiHeadSelfAttn, RelMultiHeadAttn
 
 class PositionalEmbedding(nn.Module):
     """
@@ -38,8 +38,10 @@ class DecoderLayer(nn.Module):
     """
     Perform attention across segments (+ position-wise FFN)
     """
-    def __init__(self, d_model, d_ff, n_head, dropout_rate, internal_drop, clip_value, pre_lnorm):
+    def __init__(self, d_model, d_ff, n_head, segm_len, dropout_rate, internal_drop, clip_value, pre_lnorm):
         super().__init__()
+        self.segm_len = segm_len 
+
         self.Wq_sa = nn.Linear(d_model, d_model)
         self.Wk_sa = nn.Linear(d_model, d_model)
         self.Wv_sa = nn.Linear(d_model, d_model)
@@ -72,14 +74,15 @@ class DecoderLayer(nn.Module):
         # )
         pass
 
-    def forward(self, h_t, r, bias_u, bias_v, mask, mem):
+    def forward(self, h_t, h_enc, r, bias_u, bias_v, mask, mem):
         """
         Inputs:
             h_t : token in query  # size=(1, B, H)
+            h_enc : keys and values in current segment  # size=(N, B, H)
             r : relative PE  # size=(N, 1, H)
             biases : u, v in Dai et al. 2019  # size=(nh, D)
             mem : keys and values of current layer  # size=(0~N, B, H) where N = L_seg
-            mask : (B, H, N)
+            mask : (1, N, B)
         Outputs:
             h_t : (1, B, H)
         """
@@ -110,15 +113,15 @@ class DecoderLayer(nn.Module):
         q_a = self.Wq_a(h_t)  # (1, B, H)
         r_a = self.Wr_a(r)  # (N, 1, H)
         if mem is not None:
-            cat = torch.cat([mem, h_t], dim=0)
-            K_a = self.Wk_a(cat)  # (1~N, B, H)
-            V_a = self.Wv_a(cat)  # (1~N, B, H)
+            cat = torch.cat([mem, h_enc], dim=0)
+            K_a = self.Wk_a(cat)  # (2N or N, B, H)
+            V_a = self.Wv_a(cat)  # (2N or N, B, H)
         else:
-            K_a = self.Wk_a(h_t)  # (1, B, H)
-            V_a = self.Wv_a(h_t)  # (1, B, H)
+            K_a = self.Wk_a(h_enc)  # (N, B, H)
+            V_a = self.Wv_a(h_enc)  # (N, B, H)
 
         # Relative Multi-Head Attention
-        out = self.RMHA(q_a, K_a, V_a, r_a, bias_u, bias_v, mask)
+        out, probs = self.RMHA(q_a, K_a, V_a, r_a, bias_u, bias_v, mask, self.segm_len)
         out = self.W0_a(out)
 
         # Add & Norm
@@ -134,7 +137,7 @@ class DecoderLayer(nn.Module):
         h_t = h_t + out
         h_t = self.norm3(h_t)
 
-        return h_t  # (1, B, H)
+        return h_t, probs  # (1, B, H)
 
 class TSPDecoder(nn.Module):
     """
@@ -145,7 +148,7 @@ class TSPDecoder(nn.Module):
         Decode Q,K,V into probability matrix of size=(B, L_seg, N)
         Select i-th city out of W, mask visited one, and store selected log prob
     """
-    def __init__(self, d_model, d_ff, n_layer, n_head, n_class, clamp_len, bsz, dropout_rate, internal_drop, clip_value, pre_lnorm):
+    def __init__(self, d_model, d_ff, n_layer, n_head, segm_len, clamp_len, bsz, dropout_rate, internal_drop, clip_value, pre_lnorm):
         
         assert (internal_drop > 0 and internal_drop < 1) or internal_drop == -1, 'Dropout ratio must be in range (0,1). -1 to be disabled'
         assert (clip_value > 0) or clip_value == -1, 'Clip value must be bigger than 0. Set -1 to be disabled'
@@ -154,7 +157,6 @@ class TSPDecoder(nn.Module):
         super().__init__()
 
         self.n_layer = n_layer
-        self.n_class = n_class
         self.clamp_len = clamp_len
 
         d_head = d_model // n_head
@@ -163,26 +165,26 @@ class TSPDecoder(nn.Module):
 
         self.pos_emb = PositionalEmbedding(d_model)
 
-        self.layers = nn.ModuleList([DecoderLayer(d_model, d_ff, n_head, dropout_rate, internal_drop, clip_value, pre_lnorm) for _ in range(n_layer)])
-        self.classifier = nn.Parameter(torch.randn(bsz, d_model, n_class))
-        pass
+        self.layers = nn.ModuleList([DecoderLayer(d_model, d_ff, n_head, segm_len, dropout_rate, internal_drop, clip_value, pre_lnorm) for _ in range(n_layer)])
+        self.classifier = nn.Linear(d_model, segm_len)
 
     def reset_KV_sa(self):
         for layer in self.layers:
             layer.K_sa = None
             layer.V_sa = None
 
-    def forward(self, h_t, mask, *mems):
+    def forward(self, h_t, h_enc, mask, *mems):
         """
         Inputs:
             h_t : t-th token of current segment  # size=(1, B, H)
             mems : list of memory  # size(each mem)=(0~N,B,H)
-            mask : mask for visited city same size with classifier # size=(B, H, N)
+            mask : mask for visited city same size with classifier # size=(1, N, B)
         """
         # Preparing positional encoding
         qlen = h_t.size(0)
         mlen = mems[0].size(0) if mems is not None else 0
-        klen = mlen + qlen
+        klen = mlen + h_enc.size(0)
+        # klen = mlen + qlen
 
         pos_seq = torch.arange(klen-1, -1, -1.0, device=h_t.device, dtype=h_t.dtype)
         if self.clamp_len > 0:
@@ -196,15 +198,9 @@ class TSPDecoder(nn.Module):
         hids.append(h_t)
         for i in range(self.n_layer):
             mem = mems[i] if mems is not None else None
-            h_t = self.layers[i](h_t, r, self.u, self.v, mask, mem)  # (1, B, H)
+            h_t, probs = self.layers[i](h_t, h_enc, r, self.u, self.v, mask, mem)  # (1, B, H), (1, N, B)
             hids.append(h_t)
-        # project to n_classes
-        if mask is not None:
-            self.classifier.data = self.classifier.masked_fill(mask, 0)  # (H, nc)
 
-        h_t = h_t.permute(1, 0, 2).contiguous()  # (B, 1, H)
-        logit = torch.bmm(h_t, self.classifier)  # (B, 1, H) x (B, H, nc) => (B, 1, nc)
-        probs = torch.softmax(logit, dim=-1)  # (B, 1, nc)
 
         # update memory
         # self._update_mems(hids, mems)

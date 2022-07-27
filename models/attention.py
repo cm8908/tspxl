@@ -74,11 +74,11 @@ class RelMultiHeadAttn(MultiHeadAttn):
         super().__init__(*args, **kwargs)
         pass
 
-    def forward(self, q, k, v, r, bias_u, bias_v, mask):
+    def forward(self, q, k, v, r, bias_u, bias_v, mask, segm_len):
         """
         q : query token (1, B, H)
-        k : key vector (N, B, H)
-        v : value vector (N, B, H)
+        k : key vector (2N or N, B, H)
+        v : value vector (2N or N, B, H)
         r : rel PE (N, 1, H)
         bias : u, v in Dai et al. 2019 (nh, D)
         All inputs are weighted with Wq, Wk, Wv and Wr
@@ -106,13 +106,20 @@ class RelMultiHeadAttn(MultiHeadAttn):
         if self.clip > 0:
             score = self.clip * torch.tanh(score)
 
-        # Masking
-
-        weight = torch.softmax(score, dim=1)
+        weight = torch.softmax(score, dim=1)  # (1, N, B, nh)
         try: weight = self.drop(weight)
         except: pass
-        
+
+        # Masking
+        if mask is not None:
+            logits = score.mean(dim=-1)  # (1, N, B)
+            logits = logits[:,-segm_len:,:]
+            logits = logits.masked_fill(mask, -torch.inf)
+            probs = torch.softmax(logits, dim=1)  # (1, N, B)
+        else:
+            probs = weight.mean(dim=-1)
+
         out = torch.einsum('ijbn,jbnd->ibnd', (weight, v))
         out = out.view(qlen, bsz, self.n_head * self.d_head).contiguous()  # (1, B, H)
 
-        return out
+        return out, probs

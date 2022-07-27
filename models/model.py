@@ -2,8 +2,8 @@ import torch
 from torch import nn
 from torch.distributions import Categorical
 
-from models.encoder import TSPEncoder
-from models.decoder import TSPDecoder
+from .encoder import TSPEncoder
+from .decoder import TSPDecoder
 
 class TSPXL(nn.Module):
     """
@@ -11,20 +11,12 @@ class TSPXL(nn.Module):
         H_enc = Encoder(x)  # Encodes segmented TSP instance into context vectors with MHSA and FFN layers
     Decoder:
         Decodes autoregressively for L_seg tokens
-        e.g.)
-        For first segment, do MHA until the last token. And store H_enc to memory
-        For first token of second segment, do MHA with mems[1:] + current H_enc[:1] as Keys and Values 
-        For second token of second segment, do MHA with mems[2:] + current H_enc[:2] as Keys and Values
-        For third token of second segment, do MHA with mems[3:] + current H_enc[:1] as Keys and Values
-        and so on ...
-
 
     """
-    def __init__(self, rl, d_model, d_ff, n_head, n_enc_layer, n_dec_layer, n_class, bsz, deterministic, criterion,
+    def __init__(self, rl, d_model, d_ff, n_head, n_enc_layer, n_dec_layer, segm_len, bsz, deterministic, criterion,
                        dropout_rate, internal_drop, clip_value, pre_lnorm, clamp_len):
         super().__init__()
         self.d_model = d_model
-        self.n_class = n_class
         self.n_enc_layer = n_enc_layer
         self.n_dec_layer = n_dec_layer
         self.deterministic = deterministic
@@ -34,7 +26,7 @@ class TSPXL(nn.Module):
         self.input_emb = nn.Linear(2, d_model)
         self.start_tokens = nn.Parameter(torch.randn(d_model))
         self.encoder = TSPEncoder(d_model, d_ff, n_head, n_enc_layer)
-        self.decoder = TSPDecoder(d_model, d_ff, n_dec_layer, n_head, n_class, clamp_len,
+        self.decoder = TSPDecoder(d_model, d_ff, n_dec_layer, n_head, segm_len, clamp_len,
                                   bsz, dropout_rate, internal_drop, clip_value, pre_lnorm)
 
         self.criterion = criterion
@@ -58,20 +50,17 @@ class TSPXL(nn.Module):
                 new_mems.append(cat[-segment_len:].detach())
         return new_mems
 
-    def forward(self, x, target, mask, *mems):
+    def forward(self, x, target, *mems):
         """
         Inputs
             x : 2D Euclidean TSP instance (segmented data)  # size=(N, B, 2)
             target :   # size=(B, N)
-            mask : Initially zeros(B, H, nc), keep being updated in `for t loop`
+            mask : Initially zeros(B, H, N), keep being updated in `for t loop`
             mems : 
                 Initially tuple()
-                If this segment is the first one, mems is always H_enc
-                Otherwise, mems will be updated along `for t loop`, maintaining segment length
+                mems will be updated along `for t loop`, maintaining segment length
         Outputs
-            loss : 
-            # tour : Sequence of city indices including start token  # size=()
-            # sum_log_probs : Sum of log probabilities of action (city choice)  # size=()
+        
         """
         segment_len = x.size(0)
         bsz = x.size(1)
@@ -90,33 +79,32 @@ class TSPXL(nn.Module):
         log_probs = []
         # Decode it !
         self.decoder.reset_KV_sa()
+        mask = torch.zeros(1, segment_len, bsz, device=x.device).bool()
         for t in range(segment_len):
             h_t = h_enc[t:t+1]  
 
             if not mems: mems = self._init_mems()
             '''
-            probs : (B, 1, nc)
-            hids, mems : len=9, size(hid)=(1,B,H), size(mem)=(N,B,H)
+            probs : (1, N, B)
+            hids, mems : len=n_dec_layer+1, size(hid)=(1,B,H), size(mem)=(N,B,H)
             '''
-            probs, hids, mems = self.decoder(h_t, mask, *mems)
+            probs, hids, mems = self.decoder(h_t, h_enc, mask, *mems)
+            probs = probs.permute(0, 2, 1).contiguous()  # (1, B, N)
 
             if self.deterministic:
-                city = probs.argmax(dim=-1)  # (B, 1)
+                city = probs.argmax(dim=-1)  # (1, B)
             else:
-                city = Categorical(probs).sample()  # (B, 1)
+                city = Categorical(probs).sample()  # (1, B)
 
             tour.append(city)
             probs_cat.append(probs)
 
-            chosen_prob = probs[toB, :, city.squeeze()]  # (B, 1)
+            chosen_prob = probs[:, toB, city.squeeze()]  # (1, B)
             log_probs.append(chosen_prob.log())
             
             # update mask 
             if mask is not None:
-                mask_temp = torch.zeros(bsz, self.n_class, device=mask.device, dtype=mask.dtype)  # (B, nc)
-                mask_temp[torch.arange(bsz), city.squeeze()] = 1
-                mask_temp = mask_temp[:,None,:].repeat(1, self.d_model, 1)  # (B, H, nc)
-                mask = mask + mask_temp
+                mask[:, city.squeeze(),toB] = 1
             
             # update mems
             mems = self._update_mems(hids, mems, segment_len)
@@ -134,28 +122,29 @@ class TSPXL(nn.Module):
         sum_log_probs = torch.cat(log_probs, dim=1).sum(dim=1)  # (B)
         probs_cat = torch.cat(probs_cat, dim=1)  # (B, N, nc)
             
-        return tour, sum_log_probs, probs_cat, mask, mems  #, loss
+        return tour, sum_log_probs, probs_cat, mems  #, loss
 
 if __name__ == '__main__':
     import os
-    os.environ['CUDA_VISIBLE_DEVICES'] = '1'
-    device = torch.device('cuda')
+    os.environ['CUDA_VISIBLE_DEVICES'] = '5'
+    # device = torch.device('cuda')
+    device = torch.device('cpu')
 
-    bsz, d_model, n_class = 100, 128, 50
+    bsz, d_model, n_class = 100, 128, 25
     crit = nn.NLLLoss()
     oz = torch.optim.Adam
-    model = TSPXL(rl=True, d_model=d_model, d_ff=512, n_head=8, n_layer=8, n_class=n_class, bsz=bsz, deterministic=False, criterion=crit, optimizer=oz,
+    model = TSPXL(rl=True, d_model=d_model, d_ff=512, n_head=8, n_enc_layer=6, n_dec_layer=2, bsz=bsz, deterministic=False, criterion=crit,
                   dropout_rate=0.1, internal_drop=-1, clip_value=-1, pre_lnorm=True, clamp_len=-1).to(device)
 
-    mask = torch.zeros(bsz, d_model, n_class).bool().to(device)
     mems = tuple()
 
     x = torch.randn(n_class, bsz, 2).to(device)
     targ = torch.randint(0,n_class,(bsz,n_class)).to(device)
 
-    ret = model(x, targ, mask, *mems)
+    ret = model(x, targ, *mems)
     tour, log_probs, probs_cat, new_mems = ret
+
+    ret2 = model(x, targ, *new_mems)
     print('tour=', tour.shape)
     print(tour)
-    print('loss=', loss.shape)
     print('new_mems=',len(new_mems), new_mems[0].shape)
