@@ -4,9 +4,11 @@
 import importlib
 from argparse import ArgumentParser
 parser = ArgumentParser()
-parser.add_argument('-c', dest='config_name', type=str, help='Choose hyperparameter configuration file')
+parser.add_argument('-c', dest='config_name', type=str, default='default', help='Choose hyperparameter configuration file')
 cmd_args = parser.parse_args()
-args = importlib.import_module(cmd_args.config).args
+config_filename = 'configs.' + cmd_args.config_name
+args = importlib.import_module('configs.'+cmd_args.config_name).args
+print('Loading configurations from', config_filename)
 # from configs.default_rl_step import args
 
 import os
@@ -89,7 +91,7 @@ model = TSPXL(
     n_head=args.n_head,
     n_enc_layer=args.n_enc_layer,
     n_dec_layer=args.n_dec_layer,
-    n_class=args.n_point,
+    segm_len=args.segm_len,
     bsz=args.bsz,
     deterministic=args.deterministic,
     criterion=criterion,
@@ -107,7 +109,7 @@ if args.rl:
     n_head=args.n_head,
     n_enc_layer=args.n_enc_layer,
     n_dec_layer=args.n_dec_layer,
-    n_class=args.n_point,
+    segm_len=args.segm_len,
     bsz=args.bsz,
     deterministic=args.deterministic,
     criterion=criterion,
@@ -342,7 +344,7 @@ def train_rl():
             log(log_str)
             log('#' * 100)
     # End of Outer Loop (Epoch) #
-    t_epoch = t_epoch_start - time()
+    t_epoch = time() - t_epoch_start
     eval_rl()
     return t_epoch
 
