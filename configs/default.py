@@ -12,10 +12,11 @@ args.tol = 0.001
 args.update_step = False  # choose either
 args.update_intermediate = False  # choose either
 args.update_total = True  # choose either
+args.aggregation = 'simple_join'
 
 # Experimental #
-args.debug = True
-args.exp_dir = 'logs/??'
+args.debug = False
+args.exp_dir = 'logs/seg_1'
 args.seed = 1234
 args.log_interval = 500
 

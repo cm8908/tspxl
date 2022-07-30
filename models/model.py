@@ -47,7 +47,8 @@ class TSPXL(nn.Module):
             new_mems = []
             for i in range(len(hids)):
                 cat = torch.cat([mems[i], hids[i]], dim=0)  # (1~N, B, H)
-                new_mems.append(cat[-segment_len:].detach())
+                start_idx = min(segment_len, cat.size(0))
+                new_mems.append(cat[-start_idx:].detach())
         return new_mems
 
     def forward(self, x, target, *mems):
@@ -68,46 +69,59 @@ class TSPXL(nn.Module):
         
         h = self.input_emb(x)  # (N, B, H)
 
+        h = torch.cat([h, self.start_tokens.repeat(1,bsz,1)], dim=0)  # (N+1, B, H)
+
         # Concat with start token
         # h = torch.cat([h, self.start_tokens.repeat(bsz, 1, 1)], dim=0)  # (N+1, B, H)
 
         # Encode it !
         h_enc, _ = self.encoder(h)  # (N, B, H)
 
+        # Start token
+        h_start = h_enc[-1:, toB, :]  # FIXME:
+
         tour = []
         probs_cat = []
         log_probs = []
         # Decode it !
         self.decoder.reset_KV_sa()
-        mask = torch.zeros(1, segment_len, bsz, device=x.device).bool()
+        mask = torch.zeros(1, bsz, segment_len, device=x.device).bool()
+        new_mems = []
+        h_t = h_start
         for t in range(segment_len):
-            h_t = h_enc[t:t+1]  
+            # h_t = h_enc[t:t+1]  
 
             if not mems: mems = self._init_mems()
             '''
-            probs : (1, N, B)
+            probs : (1, B, N)
             hids, mems : len=n_dec_layer+1, size(hid)=(1,B,H), size(mem)=(N,B,H)
             '''
-            probs, hids, mems = self.decoder(h_t, h_enc, mask, *mems)
-            probs = probs.permute(0, 2, 1).contiguous()  # (1, B, N)
+            probs, hids, mems = self.decoder(h_t, *mems)
+
+            probs = probs.masked_fill(mask, 0)
 
             if self.deterministic:
                 city = probs.argmax(dim=-1)  # (1, B)
             else:
                 city = Categorical(probs).sample()  # (1, B)
+            
+            city_idx = city.squeeze()  # (B)
 
             tour.append(city)
             probs_cat.append(probs)
 
-            chosen_prob = probs[:, toB, city.squeeze()]  # (1, B)
+            chosen_prob = probs[:, toB, city_idx]  # (1, B)
             log_probs.append(chosen_prob.log())
             
             # update mask 
             if mask is not None:
-                mask[:, city.squeeze(),toB] = 1
+                mask = mask.clone()  # solution?
+                mask[:, toB, city_idx] = True
             
             # update mems
             mems = self._update_mems(hids, mems, segment_len)
+
+            h_t = h_enc[city_idx, toB, :].unsqueeze(0)  # (1, B, H)
 
             # compute loss ? (for SL)
 
@@ -118,9 +132,9 @@ class TSPXL(nn.Module):
             # loss.mean().backward()
             # self.optimizer.step()
         
-        tour = torch.cat(tour, dim=1)  # (B, N)
-        sum_log_probs = torch.cat(log_probs, dim=1).sum(dim=1)  # (B)
-        probs_cat = torch.cat(probs_cat, dim=1)  # (B, N, nc)
+        tour = torch.cat(tour, dim=0)  # (N, B)
+        sum_log_probs = torch.cat(log_probs, dim=0).sum(dim=0)  # (B)
+        probs_cat = torch.cat(probs_cat, dim=0)  # (N, B, N)
             
         return tour, sum_log_probs, probs_cat, mems  #, loss
 

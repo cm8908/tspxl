@@ -74,7 +74,7 @@ class RelMultiHeadAttn(MultiHeadAttn):
         super().__init__(*args, **kwargs)
         pass
 
-    def forward(self, q, k, v, r, bias_u, bias_v, mask, segm_len):
+    def forward(self, q, k, v, r, bias_u, bias_v):
         """
         q : query token (1, B, H)
         k : key vector (2N or N, B, H)
@@ -100,7 +100,7 @@ class RelMultiHeadAttn(MultiHeadAttn):
         BD = torch.einsum('ibnd,jnd->ijbn', (qv, r))  # qv(1, B, nh, D) x r(N, nh, D) => (1, N, B, nh)
         BD = self._rel_shift(BD)
 
-        score = AC + BD
+        score = AC + BD  # (1, N, B, nh)
         score.mul_(self.scale)
 
         if self.clip > 0:
@@ -110,16 +110,8 @@ class RelMultiHeadAttn(MultiHeadAttn):
         try: weight = self.drop(weight)
         except: pass
 
-        # Masking
-        if mask is not None:
-            logits = score.mean(dim=-1)  # (1, N, B)
-            logits = logits[:,-segm_len:,:]
-            logits = logits.masked_fill(mask, -torch.inf)
-            probs = torch.softmax(logits, dim=1)  # (1, N, B)
-        else:
-            probs = weight.mean(dim=-1)
 
         out = torch.einsum('ijbn,jbnd->ibnd', (weight, v))
         out = out.view(qlen, bsz, self.n_head * self.d_head).contiguous()  # (1, B, H)
 
-        return out, probs
+        return out

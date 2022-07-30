@@ -145,10 +145,11 @@ def compute_tour_length(tour, x):
     Original code from : github.com/xbresson
     Compute the length of a batch of tours
     Inputs : x of size (N, B, 2) batch of tsp tour instances
-             tour of size (B, N) batch of sequences (node indices) of tsp tours
+             tour of size (N, B) batch of sequences (node indices) of tsp tours
     Output : L of size (bsz,)             batch of lengths of each tsp tour
     """
     x = x.permute(1,0,2).contiguous()  # (B, N, 2)
+    tour = tour.permute(1,0).contiguous()  # (B, N)
     bsz = x.shape[0]
     nb_nodes = tour.shape[1]
     arange_vec = torch.arange(bsz, device=x.device)
@@ -163,7 +164,7 @@ def compute_tour_length(tour, x):
         L += torch.sum( (current_cities - first_cities)**2 , dim=1 )**0.5 # dist(last, first node)  
     return L
 
-def update_model(tour, tour_b, sum_log_probs, data, done=False):
+def update_model(tour, tour_b, sum_log_probs, data):
     start = time()
     optimizer.zero_grad()
     L_train = compute_tour_length(tour, data)
@@ -177,6 +178,7 @@ def update_model(tour, tour_b, sum_log_probs, data, done=False):
 min_tour_length = None
 
 def eval_rl():
+    global min_tour_length
 
     L_train_list = []
     L_base_list = []
@@ -207,8 +209,8 @@ def eval_rl():
                 tour_b_list.append(tour_b)
                 sum_log_probs_total = sum_log_probs_total + sum_log_probs
             # End of Inner Loop (Full Data) #
-            tour_cat = torch.cat(tour_list, dim=1)
-            tour_b_cat = torch.cat(tour_b_list, dim=1)
+            tour_cat = torch.cat(tour_list, dim=0)
+            tour_b_cat = torch.cat(tour_b_list, dim=0)
 
             L_train = compute_tour_length(tour_cat, full_data)
             L_base = compute_tour_length(tour_b_cat, full_data)
@@ -228,15 +230,18 @@ def eval_rl():
     if L_train_mean + args.tol < L_base_mean:
         baseline.load_state_dict(model.state_dict())
         log('@' * 100)
-        log('Baseline has been updated. Mean L_train', L_train_mean)
+        log('Baseline has been updated. Mean L_train ' +str(L_train_mean))
         log('@' * 100)
 
+    if min_tour_length > L_train_mean:
+        min_tour_length = L_train_mean
+
     # Save model if shorted tour length
-    if min_tour_length is not None and min_tour_length > L_train_mean:
+    if min_tour_length is not None:
         min_tour_length = L_train_mean
         save_checkpoint(model, optimizer, args.exp_dir, e)
         log('@' * 100)
-        log('Model has been saved. Min Mean L_train', min_tour_length)
+        log('Model has been saved. Min Mean L_train '+str(min_tour_length))
         log('@' * 100)
 
 
@@ -272,6 +277,7 @@ def train_rl():
         
         tour_list = []
         tour_b_list = []
+        sum_log_probs_list = []
         sum_log_probs_total = 0
     
         mems = tuple()
@@ -279,6 +285,12 @@ def train_rl():
 
         for j, (data, done) in enumerate(train_loader.get_split_iter(full_data)):
             t_model_forward_start = time()
+            '''
+            ret:
+                tour : (N, B)
+                sum_log_probs : (B)
+                mems : list of (N, B, H), len=n_dec_layer+1
+            '''
             ret = model(data, None, *mems)
             t_model_forward_dur = time() - t_model_forward_start
             t_model_forward_list.append(t_model_forward_dur)
@@ -290,17 +302,17 @@ def train_rl():
             
             # Update model using step tour
             if args.update_step:
-                dur, L_train, L_base, loss = update_model(tour, tour_b, sum_log_probs, data, done)
+                dur, L_train, L_base, loss = update_model(tour, tour_b, sum_log_probs, data)
                 t_update_step_list.append(dur)
                 L_train_track.append(L_train)
                 L_base_track.append(L_base)
                 loss_track.append(loss)
 
             tour_list.append(tour)
-            tour_cat = torch.cat(tour_list, dim=1)
+            # tour_cat = torch.cat(tour_list, dim=0)
 
             tour_b_list.append(tour_b)
-            tour_b_cat = torch.cat(tour_b_list, dim=1)
+            # tour_b_cat = torch.cat(tour_b_list, dim=0)
 
             sum_log_probs_total = sum_log_probs_total + sum_log_probs
 
@@ -310,11 +322,17 @@ def train_rl():
             #     t_update_interm_list.append(dur)
 
         # TODO: aggregate each partial tours            
+        if args.aggregation == 'simple_join':
+            for k in range(j+1):
+                tour_list[k] = tour_list[k] + k * args.segm_len
+                tour_b_list[k] = tour_b_list[k] + k * args.segm_len
+            complete_tour = torch.cat(tour_list, dim=0)
+            complete_tour_b = torch.cat(tour_b_list, dim=0)
 
         # End of Inner Loop (Full Data) #
         # Update model using complete tour
         if args.update_total and not args.update_intermediate:
-            dur, L_train, L_base, loss = update_model(tour_cat, tour_b_cat, sum_log_probs_total, data)
+            dur, L_train, L_base, loss = update_model(complete_tour, complete_tour_b, sum_log_probs_total, full_data)
             t_update_total_list.append(dur)
             total_L_train_track.append(L_train)
             total_L_base_track.append(L_base)
