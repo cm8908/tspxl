@@ -1,5 +1,6 @@
 import os
 import torch
+import numpy as np
 from torch.utils.data import Dataset
 
 class RandomTSPGenerator:
@@ -16,7 +17,7 @@ class RandomTSPGenerator:
         return batch
 
     def get_split_iter(self, batch):
-            n_segm = batch.size(1) // self.segm_len
+            # n_segm = batch.size(1) // self.segm_len
             for j in range(0, self.total_len, self.segm_len):
                 done = j == self.total_len // self.segm_len - 1
                 try:
@@ -34,6 +35,36 @@ class RandomTSPGenerator:
 
     def __iter__(self):
         return self.get_fixlen_iter()
+
+class SortedTSPGenerator(RandomTSPGenerator):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        pass
+
+    def sort(self, x):
+        '''x: (N, B, 2) '''
+        xn = x.cpu().numpy()
+        xy = xn[:,:,0] + xn[:,:,1]  # (N, B)
+        idx_origin = np.arange(x.shape[0])
+        xy_srt =  np.sort(xy, axis=0)[::-1]  # (N, B)
+        res = []
+        for b in range(self.bsz):
+            mapper = {xy_i: idx for xy_i, idx in zip(xy[:,b], idx_origin)}
+            idx_srt = [mapper[xy_i] for xy_i in xy_srt[:,b]]
+            xn_srt = np.array([xn[i,b,:] for i in idx_srt])
+            res.append(xn_srt)
+        res = np.stack(res, axis=1)  # (N, B, 2)
+        return torch.from_numpy(res).to(x.device)
+
+    def get_sorted_iter(self):
+        for i in range(self.max_step):
+            batch = self.make_batch()
+            batch_sorted = self.sort(batch)
+            yield batch_sorted
+
+        pass
+    def __iter__(self):
+        return self.get_sorted_iter()
 
 
 class TSPDataset(Dataset):
@@ -86,10 +117,17 @@ class TSPDataset(Dataset):
         return self.data[idx], self.label[idx] #, self.dist[idx], self.adj[idx].long(), self.real_adj[idx].long(), self.tour_len[idx]
 
 if __name__ == '__main__':
-    trainset = TSPDataset(n=10, mode='train', root_dir='/home/gailab/ms/tspxl/datasets', author='joshi', device='cpu')
-    valset = TSPDataset(n=10, mode='val', root_dir='/home/gailab/ms/tspxl/datasets', author='joshi', device='cpu')
-    testset = TSPDataset(n=10, mode='test', root_dir='/home/gailab/ms/tspxl/datasets', author='joshi', device='cpu')
-    print(f'train: {len(trainset)}, val: {len(valset)}, test: {len(testset)}')
+    # trainset = TSPDataset(n=10, mode='train', root_dir='/home/gailab/ms/tspxl/datasets', author='joshi', device='cpu')
+    # valset = TSPDataset(n=10, mode='val', root_dir='/home/gailab/ms/tspxl/datasets', author='joshi', device='cpu')
+    # testset = TSPDataset(n=10, mode='test', root_dir='/home/gailab/ms/tspxl/datasets', author='joshi', device='cpu')
+    # print(f'train: {len(trainset)}, val: {len(valset)}, test: {len(testset)}')
+
+    gen = SortedTSPGenerator(bsz=2, total_len=10, segm_len=5, max_step=1, device='cpu')
+    for i, batch in enumerate(gen):
+        for split_batch, done in gen.get_split_iter(batch):
+            print(split_batch.shape, done)
+            if i == 0:
+                print(split_batch[:,0,:], split_batch[:,0,0]+split_batch[:,0,1])
     # data, label = dataset[0]
     # print(len(dataset))
     # print(data.shape, label.shape)
