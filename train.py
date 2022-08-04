@@ -7,7 +7,7 @@ parser = ArgumentParser()
 parser.add_argument('-c', dest='config_name', type=str, default='default', help='Choose hyperparameter configuration file')
 cmd_args = parser.parse_args()
 config_filename = 'configs.' + cmd_args.config_name
-args = importlib.import_module('configs.'+cmd_args.config_name).args
+args = importlib.import_module(config_filename).args
 print('Loading configurations from', config_filename)
 # from configs.default_rl_step import args
 
