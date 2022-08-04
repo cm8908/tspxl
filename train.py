@@ -4,7 +4,7 @@
 import importlib
 from argparse import ArgumentParser
 parser = ArgumentParser()
-parser.add_argument('-c', dest='config_name', type=str, default='default', help='Choose hyperparameter configuration file')
+parser.add_argument('-c', dest='config_name', type=str, default='debug', help='Choose hyperparameter configuration file')
 cmd_args = parser.parse_args()
 config_filename = 'configs.' + cmd_args.config_name
 args = importlib.import_module(config_filename).args
@@ -51,8 +51,12 @@ log('$' * 100)
 
 # Load Dataset and iterator
 if args.rl:
-    train_loader = SortedTSPGenerator(bsz=args.bsz, total_len=args.n_point, max_step=args.rl_maxstep, device=device, segm_len=args.segm_len)
-    val_loader = SortedTSPGenerator(bsz=args.bsz, total_len=args.n_point, max_step=args.rl_eval_maxstep, device=device, segm_len=args.segm_len)
+    if args.sorted:
+        train_loader = SortedTSPGenerator(bsz=args.bsz, total_len=args.n_point, max_step=args.rl_maxstep, device=device, segm_len=args.segm_len)
+        val_loader = SortedTSPGenerator(bsz=args.bsz, total_len=args.n_point, max_step=args.rl_eval_maxstep, device=device, segm_len=args.segm_len)
+    else:
+        train_loader = RandomTSPGenerator(bsz=args.bsz, total_len=args.n_point, max_step=args.rl_maxstep, device=device, segm_len=args.segm_len)
+        val_loader = RandomTSPGenerator(bsz=args.bsz, total_len=args.n_point, max_step=args.rl_eval_maxstep, device=device, segm_len=args.segm_len)
 else:
     if args.n_point >= 50:
         train_set = TSPDataset(n=args.n_point, mode='train', root_dir=args.data_root, author=args.data_source, device=device, segm_len=args.segm_len)
@@ -69,8 +73,6 @@ if args.rl and args.loss_fn in ['nll', 'ce', 'mse']:
 if not args.rl and args.loss_fn in ['reinforce']:
     raise ValueError(f'Criterion `{args.loss_fn}` is not a valid method for SL')
 
-if int(args.update_step) + int(args.update_intermediate) + int(args.update_total) > 2:
-    raise ValueError(f'You can select only one update mechanism')
 
 # Criterion
 if args.rl:
@@ -101,7 +103,6 @@ model = TSPXL(
     clip_value=args.clip_value,
     pre_lnorm=args.pre_lnorm,
     clamp_len=args.clamp_len,
-    rl=args.rl
 )
 if args.rl:
     baseline = TSPXL(
@@ -119,7 +120,6 @@ if args.rl:
     clip_value=args.clip_value,
     pre_lnorm=args.pre_lnorm,
     clamp_len=args.clamp_len,
-    rl=args.rl
     )
 
 # Optimizer
@@ -190,40 +190,40 @@ def eval_rl():
     model.eval()
     baseline.eval()
     with torch.no_grad():
-        for i, full_data in enumerate(val_loader):
+        for i, data in enumerate(val_loader):
 
-            tour_list = []
-            tour_b_list = []
-            sum_log_probs_total = 0
+            # tour_list = []
+            # tour_b_list = []
+            # sum_log_probs_total = 0
 
             mems = tuple()
             mems_b = tuple()
 
-            for j, (data, _) in enumerate(val_loader.get_split_iter(full_data)):
-                ret = model(data, None, *mems)
-                tour, sum_log_probs, probs_cat, mems = ret
+            # for j, (data, _) in enumerate(val_loader.get_split_iter(full_data)):
+            ret = model(data, None, *mems)
+            tour, sum_log_probs, probs_cat = ret
 
-                ret_b = baseline(data, None, *mems_b)
-                tour_b, _, _, mems_b = ret_b
+            ret_b = baseline(data, None, *mems_b)
+            tour_b, _, _ = ret_b
             
-                tour_list.append(tour)
-                tour_b_list.append(tour_b)
-                sum_log_probs_total = sum_log_probs_total + sum_log_probs
+            # tour_list.append(tour)
+            # tour_b_list.append(tour_b)
+            # sum_log_probs_total = sum_log_probs_total + sum_log_probs
             # End of Inner Loop (Full Data) #
-            tour_cat = torch.cat(tour_list, dim=0)
-            tour_b_cat = torch.cat(tour_b_list, dim=0)
+            # tour_cat = torch.cat(tour_list, dim=0)
+            # tour_b_cat = torch.cat(tour_b_list, dim=0)
 
-            L_train = compute_tour_length(tour_cat, full_data)
-            L_base = compute_tour_length(tour_b_cat, full_data)
-            val_loss = model.criterion(L_train, L_base, sum_log_probs_total)
+            L_train = compute_tour_length(tour, data)
+            L_base = compute_tour_length(tour_b, data)
+            val_loss = model.criterion(L_train, L_base, sum_log_probs)
         
-        L_train_list.append(L_train.mean().item())
-        L_base_list.append(L_base.mean().item())
-        val_loss_list.append(val_loss.mean().item())
+        # L_train_list.append(L_train.mean().item())
+        # L_base_list.append(L_base.mean().item())
+        # val_loss_list.append(val_loss.mean().item())
 
-    L_train_mean = np.mean(L_train_list)
-    L_base_mean = np.mean(L_base_list)
-    val_loss_mean = np.mean(val_loss_list)
+    L_train_mean = L_train.mean().item()
+    L_base_mean = L_base.mean().item()
+    val_loss_mean = val_loss.mean().item()
 
     dur = time() - eval_start_time
     
@@ -236,20 +236,21 @@ def eval_rl():
 
 
     # Save model if shorted tour length
-    if min_tour_length > L_train_mean:
-        min_tour_length = L_train_mean
-        save_checkpoint(model, optimizer, args.exp_dir, e)
-        log('@' * 100)
-        log('Model has been saved. Min Mean L_train '+str(min_tour_length))
-        log('@' * 100)
+    if not args.debug:
+        if min_tour_length > L_train_mean:
+            min_tour_length = L_train_mean
+            save_checkpoint(model, optimizer, args.exp_dir, e)
+            log('@' * 100)
+            log('Model has been saved. Min Mean L_train '+str(min_tour_length))
+            log('@' * 100)
 
-        example_path = os.path.join(args.exp_dir, f'example_{e}.pkl')
-        with open(example_path, 'wb') as f:
-            example = {
-                'tour': tour_cat, 'tour_b': tour_b_cat,
-                'L_train': L_train, 'L_base': L_base, 'data': full_data
-            }
-            pickle.dump(example, f)
+            example_path = os.path.join(args.exp_dir, f'example_{e}.pkl')
+            with open(example_path, 'wb') as f:
+                example = {
+                    'tour': tour, 'tour_b': tour_b,
+                    'L_train': L_train, 'L_base': L_base, 'data': data
+                }
+                pickle.dump(example, f)
 
     log('#' * 100)
     log_str = f'Eval Log -- (Step:{args.rl_eval_maxstep}) | Total Time {dur:.3f}s | Time per step {dur/args.rl_eval_maxstep:.3f}s | Mean L_train {L_train_mean:.5f} | Mean L_base {L_base_mean:.5f} | Mean Val Loss {val_loss_mean:.5f}'
@@ -263,108 +264,107 @@ def train_rl():
     t_epoch_start = time()
 
     t_model_forward_list = []
-    t_update_step_list = []
-    t_update_interm_list = []  # Save intermediate update?
-    t_update_total_list = []
+    t_update_list = []
+    # t_update_interm_list = []  # Save intermediate update?
+    # t_update_total_list = []
 
     L_train_track = []
     L_base_track = []
     loss_track = []
 
-    total_L_train_track = []
-    total_L_base_track = []
-    total_loss_track = []
+    # total_L_train_track = []
+    # total_L_base_track = []
+    # total_loss_track = []
 
     model.train()
     baseline.train()
-    for i, full_data in enumerate(train_loader):
+    for i, data in enumerate(train_loader):
 
         t_one_batch_start = time()
         
-        tour_list = []
-        tour_b_list = []
-        sum_log_probs_list = []
-        sum_log_probs_total = 0
+        # tour_list = []
+        # tour_b_list = []
+        # sum_log_probs_list = []
+        # sum_log_probs_total = 0
     
         mems = tuple()
         mems_b = tuple()
 
-        for j, (data, done) in enumerate(train_loader.get_split_iter(full_data)):
-            t_model_forward_start = time()
-            '''
-            ret:
-                tour : (N, B)
-                sum_log_probs : (B)
-                mems : list of (N, B, H), len=n_dec_layer+1
-            '''
-            ret = model(data, None, *mems)
-            t_model_forward_dur = time() - t_model_forward_start
-            t_model_forward_list.append(t_model_forward_dur)
-            tour, sum_log_probs, _, mems = ret
+        # for j, (data, done) in enumerate(train_loader.get_split_iter(full_data)):
+        t_model_forward_start = time()
+        '''
+        ret:
+            tour : (N, B)
+            sum_log_probs : (B)
+            probs_cat : (N, N, B)
+        '''
+        ret = model(data, None, *mems)
+        t_model_forward_dur = time() - t_model_forward_start
+        t_model_forward_list.append(t_model_forward_dur)
+        tour, sum_log_probs, heatmap = ret
 
-            with torch.no_grad(): 
-                ret_b = baseline(data, None, *mems_b)
-                tour_b, _, _, mems_b = ret_b
+        with torch.no_grad(): 
+            ret_b = baseline(data, None, *mems_b)
+            tour_b, _, _ = ret_b
             
-            # Update model using step tour
-            if args.update_step:
-                dur, L_train, L_base, loss = update_model(tour, tour_b, sum_log_probs, data)
-                t_update_step_list.append(dur)
-                L_train_track.append(L_train)
-                L_base_track.append(L_base)
-                loss_track.append(loss)
+        # Update model using step tour
+        # if args.update_step:
+        dur, L_train, L_base, loss = update_model(tour, tour_b, sum_log_probs, data)
+        t_update_list.append(dur)
+        L_train_track.append(L_train)
+        L_base_track.append(L_base)
+        loss_track.append(loss)
 
-            tour_list.append(tour)
-            # tour_cat = torch.cat(tour_list, dim=0)
+        # tour_list.append(tour)
+        # tour_cat = torch.cat(tour_list, dim=0)
 
-            tour_b_list.append(tour_b)
-            # tour_b_cat = torch.cat(tour_b_list, dim=0)
+        # tour_b_list.append(tour_b)
+        # tour_b_cat = torch.cat(tour_b_list, dim=0)
 
-            sum_log_probs_total = sum_log_probs_total + sum_log_probs
+        # sum_log_probs_total = sum_log_probs_total + sum_log_probs
 
-            # Update model using intermediate tour
-            # if args.update_intermediate and j != 0:
-            #     dur, _, _, _ = update_model(tour_cat, tour_b_cat, sum_log_probs_total, full_data, done)
-            #     t_update_interm_list.append(dur)
+        # Update model using intermediate tour
+        # if args.update_intermediate and j != 0:
+        #     dur, _, _, _ = update_model(tour_cat, tour_b_cat, sum_log_probs_total, full_data, done)
+        #     t_update_interm_list.append(dur)
 
-        # TODO: aggregate each partial tours            
-        if args.aggregation == 'simple_join':
-            for k in range(j+1):
-                tour_list[k] = tour_list[k] + k * args.segm_len
-                tour_b_list[k] = tour_b_list[k] + k * args.segm_len
-            complete_tour = torch.cat(tour_list, dim=0)
-            complete_tour_b = torch.cat(tour_b_list, dim=0)
+        #  aggregate each partial tours            
+        # if args.aggregation == 'simple_join':
+        #     for k in range(j+1):
+        #         tour_list[k] = tour_list[k] + k * args.segm_len
+        #         tour_b_list[k] = tour_b_list[k] + k * args.segm_len
+        #     complete_tour = torch.cat(tour_list, dim=0)
+        #     complete_tour_b = torch.cat(tour_b_list, dim=0)
 
         # End of Inner Loop (Full Data) #
         # Update model using complete tour
-        if args.update_total and not args.update_intermediate:
-            dur, L_train, L_base, loss = update_model(complete_tour, complete_tour_b, sum_log_probs_total, full_data)
-            t_update_total_list.append(dur)
-            total_L_train_track.append(L_train)
-            total_L_base_track.append(L_base)
-            total_loss_track.append(loss)
+        # if args.update_total and not args.update_intermediate:
+        #     dur, L_train, L_base, loss = update_model(complete_tour, complete_tour_b, sum_log_probs_total, full_data)
+        #     t_update_total_list.append(dur)
+        #     total_L_train_track.append(L_train)
+        #     total_L_base_track.append(L_base)
+        #     total_loss_track.append(loss)
 
         if i % args.log_interval == 0:
             t_one_batch = time() - t_one_batch_start
             t_model_forward_mean = np.mean(t_model_forward_list)
-            t_update_step = np.mean(t_update_step_list)
-            t_update_interm = np.mean(t_update_interm_list)
-            t_update_total = np.mean(t_update_total_list)
-            mean_tour_train_step = np.mean(L_train_track)
-            mean_tour_base_step = np.mean(L_base_track)
-            mean_loss_track_step = np.mean(loss_track)
-            mean_tour_train_total = np.mean(total_L_train_track)
-            mean_tour_base_total = np.mean(total_L_base_track)
-            mean_loss_track_total = np.mean(total_loss_track)
+            t_update_step = np.mean(t_update_list)
+            # t_update_interm = np.mean(t_update_interm_list)
+            # t_update_total = np.mean(t_update_total_list)
+            mean_tour_train = np.mean(L_train_track)
+            mean_tour_base = np.mean(L_base_track)
+            mean_loss_track = np.mean(loss_track)
+            # mean_tour_train_total = np.mean(total_L_train_track)
+            # mean_tour_base_total = np.mean(total_L_base_track)
+            # mean_loss_track_total = np.mean(total_loss_track)
             
             log('#' * 100)
             log_str = f'Train Log -- (Step:{i}) | Step Duration {t_one_batch:.3f}s | Mean Forward Time {t_model_forward_mean:.3f}'
-            if args.update_step:
-                log_str += f'\n\tStep Backward Time {t_update_step:.3f}s | Mean L_train {mean_tour_train_step:.5f} | Mean L_base {mean_tour_base_step:.5f} | Mean Train Loss {mean_loss_track_step:.5f}'
-            if args.update_intermediate:
-                log_str += f'\n\tIntermediate Backward time {t_update_interm:.3f}'
-            if args.update_total:
-                log_str += f'\n\tTotal Backward Time {t_update_total:.3f} | Mean L_train {mean_tour_train_total:.5f} | Mean L_base {mean_tour_base_total:.5f} | Mean Train Loss {mean_loss_track_total:.5f}'
+            log_str += f'\n\tBackward Time {t_update_step:.3f}s | Mean L_train {mean_tour_train:.5f} | Mean L_base {mean_tour_base:.5f} | Mean Train Loss {mean_loss_track:.5f}'
+            # if args.update_intermediate:
+            #     log_str += f'\n\tIntermediate Backward time {t_update_interm:.3f}'
+            # if args.update_total:
+            #     log_str += f'\n\tTotal Backward Time {t_update_total:.3f} | Mean L_train {mean_tour_train_total:.5f} | Mean L_base {mean_tour_base_total:.5f} | Mean Train Loss {mean_loss_track_total:.5f}'
             log(log_str)
             log('#' * 100)
     # End of Outer Loop (Epoch) #
@@ -386,7 +386,7 @@ try:
         log('@' * 100)
         log(f'Epoch {e} has been ended. Duration: {t_epoch:.3f}s')
         log('@' * 100)
-    t_train = time() - t_train_start()
+    t_train = time() - t_train_start
     log('$' * 100)
     log(f'Train has been ended. Duration: {t_train:.3f}s')
     log('$' * 100)

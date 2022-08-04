@@ -1,6 +1,6 @@
 import torch
 from torch import nn
-from .attention import MultiHeadSelfAttn, RelMultiHeadAttn
+from models.attention import MultiHeadSelfAttn, RelMultiHeadAttn
 
 class PositionalEmbedding(nn.Module):
     """
@@ -73,7 +73,7 @@ class DecoderLayer(nn.Module):
         # )
         pass
 
-    def forward(self, h_t, h_enc, r, bias_u, bias_v, mem):
+    def forward(self, h_t, h_enc, r, bias_u, bias_v, mask, mem):
         """
         Inputs:
             h_t : token in query  # size=(1, B, H)
@@ -131,7 +131,7 @@ class DecoderLayer(nn.Module):
         #     V_a = self.Wv_a(h_t)  # (1, B, H)
 
         # Relative Multi-Head Attention
-        out, probs = self.RMHA(q_a, K_a, V_a, r_a, bias_u, bias_v)
+        out, probs = self.RMHA(q_a, K_a, V_a, r_a, bias_u, bias_v, mask)
         out = self.W0_a(out)
 
         # Add & Norm
@@ -196,7 +196,7 @@ class TSPDecoder(nn.Module):
         # klen = mlen + h_enc.size(0)
         klen = mlen + qlen
 
-        pos_seq = torch.arange(klen-1, -1, -1.0, device=h_t.device, dtype=h_t.dtype)
+        pos_seq = torch.arange(h_enc.size(0)-1, -1, -1.0, device=h_t.device, dtype=h_t.dtype)
         if self.clamp_len > 0:
             pos_seq.clamp_(max=self.clamp_len)
         r = self.pos_emb(pos_seq)
@@ -208,7 +208,7 @@ class TSPDecoder(nn.Module):
         hids.append(h_t)
         for i in range(self.n_layer):
             mem = mems[i] if mems is not None else None
-            h_t, probs = self.layers[i](h_t, h_enc, r, self.u, self.v, mem)  # (1, B, H), (1, N, B)
+            h_t, probs = self.layers[i](h_t, h_enc, r, self.u, self.v, mask, mem)  # (1, B, H), (1, N, B)
             hids.append(h_t)
 
 
