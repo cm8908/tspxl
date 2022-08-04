@@ -74,7 +74,7 @@ class RelMultiHeadAttn(MultiHeadAttn):
         super().__init__(*args, **kwargs)
         pass
 
-    def forward(self, q, k, v, r, bias_u, bias_v):
+    def forward(self, q, k, v, r, bias_u, bias_v, mask):
         """
         q : query token (1, B, H)
         k : key vector (2N or N, B, H)
@@ -110,8 +110,16 @@ class RelMultiHeadAttn(MultiHeadAttn):
         try: weight = self.drop(weight)
         except: pass
 
+        # Calculate attention probs
+        if mask is not None:
+            logits = score.mean(dim=-1)  # (1, N, B)
+            logits.masked_fill_(mask, -torch.inf)
+            probs = torch.softmax(logits, dim=1)  # (1, N, B)
+        else:
+            probs = weight.mean(dim=-1)
+
 
         out = torch.einsum('ijbn,jbnd->ibnd', (weight, v))
         out = out.view(qlen, bsz, self.n_head * self.d_head).contiguous()  # (1, B, H)
 
-        return out
+        return out, probs

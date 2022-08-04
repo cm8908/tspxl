@@ -10,8 +10,9 @@ class TSPXL(nn.Module):
     Encoder:
         H_enc = Encoder(x)  # Encodes segmented TSP instance into context vectors with MHSA and FFN layers
     Decoder:
-        Decodes autoregressively for L_seg tokens
-
+        Decoding
+        Self attention according to Transformer-XL
+        Query attention to complete H_enc
     """
     def __init__(self, rl, d_model, d_ff, n_head, n_enc_layer, n_dec_layer, segm_len, bsz, deterministic, criterion,
                        dropout_rate, internal_drop, clip_value, pre_lnorm, clamp_len):
@@ -51,7 +52,7 @@ class TSPXL(nn.Module):
                 new_mems.append(cat[-start_idx:].detach())
         return new_mems
 
-    def forward(self, x, target, *mems):
+    def forward(self, x, target, mask, *mems):
         """
         Inputs
             x : 2D Euclidean TSP instance (segmented data)  # size=(N, B, 2)
@@ -61,7 +62,6 @@ class TSPXL(nn.Module):
                 Initially tuple()
                 mems will be updated along `for t loop`, maintaining segment length
         Outputs
-        
         """
         segment_len = x.size(0)
         bsz = x.size(1)
@@ -75,50 +75,85 @@ class TSPXL(nn.Module):
         h_enc, _ = self.encoder(h)  # (N, B, H)
 
         # Start token
-        h_start = h_enc[:1, toB, :]  # FIXME:
+        h_start = h_enc[:1, toB, :]
 
+        # Track lists
         tour = []
         probs_cat = []
         log_probs = []
-        # Decode it !
-        self.decoder.reset_KV_sa()
-        mask = torch.zeros(1, bsz, segment_len, device=x.device).bool()
-        new_mems = []
-        h_t = h_start
-        for t in range(segment_len):
-            h_t = h_enc[t:t+1]  
 
+        # Decode it !
+        h_t = h_start
+        # for segment in self.segment_iter():  # data : (L, B, H)
+        for t in range(segment_len):
             if not mems: mems = self._init_mems()
             '''
-            probs : (1, B, N)
+            probs : (1, N, B)
             hids, mems : len=n_dec_layer+1, size(hid)=(1,B,H), size(mem)=(N,B,H)
             '''
-            probs, hids, mems = self.decoder(h_t, *mems)
-
-            probs = probs.masked_fill(mask, 0)
+            probs, hids, mems = self.decoder(h_t, h_enc, mask, *mems)
 
             if self.deterministic:
-                city = probs.argmax(dim=-1)  # (1, B)
+                city = probs.argmax(dim=1)  # (1, B)
             else:
-                city = Categorical(probs).sample()  # (1, B)
+                city = Categorical(probs).sample((1, bsz))  # (1, B)
             
             city_idx = city.squeeze()  # (B)
 
             tour.append(city)
             probs_cat.append(probs)
-
             chosen_prob = probs[:, toB, city_idx]  # (1, B)
             log_probs.append(chosen_prob.log())
-            
-            # update mask 
+
+            # update mask
             if mask is not None:
-                mask = mask.clone()  # solution?
+                mask = mask.clone()
                 mask[:, toB, city_idx] = True
-            
+
             # update mems
             mems = self._update_mems(hids, mems, segment_len)
 
-            h_t = h_enc[city_idx, toB, :].unsqueeze(0)  # (1, B, H)
+            h_t = h_enc[city_idx, toB, :].unsqueeze(0)
+
+        # >>> Legacy <<<
+        # self.decoder.reset_KV_sa()
+        # mask = torch.zeros(1, bsz, segment_len, device=x.device).bool()
+        # new_mems = []
+        # h_t = h_start
+        # for t in range(segment_len):
+        #     h_t = h_enc[t:t+1]  
+
+        #     if not mems: mems = self._init_mems()
+        #     '''
+        #     probs : (1, B, N)
+        #     hids, mems : len=n_dec_layer+1, size(hid)=(1,B,H), size(mem)=(N,B,H)
+        #     '''
+        #     probs, hids, mems = self.decoder(h_t, *mems)
+
+        #     probs = probs.masked_fill(mask, 0)
+
+        #     if self.deterministic:
+        #         city = probs.argmax(dim=-1)  # (1, B)
+        #     else:
+        #         city = Categorical(probs).sample()  # (1, B)
+            
+        #     city_idx = city.squeeze()  # (B)
+
+        #     tour.append(city)
+        #     probs_cat.append(probs)
+
+        #     chosen_prob = probs[:, toB, city_idx]  # (1, B)
+        #     log_probs.append(chosen_prob.log())
+            
+        #     # update mask 
+        #     if mask is not None:
+        #         mask = mask.clone()  # solution?
+        #         mask[:, toB, city_idx] = True
+            
+        #     # update mems
+        #     mems = self._update_mems(hids, mems, segment_len)
+
+        #     h_t = h_enc[city_idx, toB, :].unsqueeze(0)  # (1, B, H)
 
             # compute loss ? (for SL)
 

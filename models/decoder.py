@@ -45,8 +45,8 @@ class DecoderLayer(nn.Module):
         self.Wk_sa = nn.Linear(d_model, d_model)
         self.Wv_sa = nn.Linear(d_model, d_model)
         self.W0_sa = nn.Linear(d_model, d_model)
-        self.K_sa = None
-        self.V_sa = None
+        # self.K_sa = None
+        # self.V_sa = None
 
         self.Wq_a = nn.Linear(d_model, d_model)
         self.Wk_a = nn.Linear(d_model, d_model)
@@ -73,7 +73,7 @@ class DecoderLayer(nn.Module):
         # )
         pass
 
-    def forward(self, h_t, r, bias_u, bias_v, mem):
+    def forward(self, h_t, h_enc, r, bias_u, bias_v, mem):
         """
         Inputs:
             h_t : token in query  # size=(1, B, H)
@@ -88,15 +88,23 @@ class DecoderLayer(nn.Module):
         q_sa = self.Wq_sa(h_t)  # (1, B, H)
         k_sa = self.Wk_sa(h_t)  # (1, B, H)
         v_sa = self.Wv_sa(h_t)  # (1, B, H)
-        if self.K_sa is None:
-            self.K_sa = k_sa
-            self.V_sa = v_sa
+        if mem is None:
+            K_sa = k_sa
+            V_sa = v_sa
         else:
-            self.K_sa = torch.cat([self.K_sa, k_sa], dim=0)  # (1~N B, H)
-            self.V_sa = torch.cat([self.V_sa, k_sa], dim=0)  # (1~N B, H)
+            K_sa = torch.cat([mem, k_sa], dim=0)
+            V_sa = torch.cat([mem, v_sa], dim=0)
+        
+        # >>> Legacy <<<
+        # if self.K_sa is None:
+        #     self.K_sa = k_sa
+        #     self.V_sa = v_sa
+        # else:
+        #     self.K_sa = torch.cat([self.K_sa, k_sa], dim=0)  # (1~N B, H)
+        #     self.V_sa = torch.cat([self.V_sa, k_sa], dim=0)  # (1~N B, H)
         
         # Multi-Head Self-Attention
-        out = self.MHSA(q_sa, self.K_sa, self.V_sa)  # size(out)=(1, B, H)
+        out = self.MHSA(q_sa, K_sa, V_sa)  # size(out)=(1, B, H)
         out = self.W0_sa(out)  # (1, B, H)
 
         # Add & Norm
@@ -110,16 +118,20 @@ class DecoderLayer(nn.Module):
         except: pass
         q_a = self.Wq_a(h_t)  # (1, B, H)
         r_a = self.Wr_a(r)  # (N, 1, H)
-        if mem is not None:
-            cat = torch.cat([mem, h_t], dim=0)
-            K_a = self.Wk_a(cat)  # (1~N, B, H)
-            V_a = self.Wv_a(cat)  # (1~N, B, H)
-        else:
-            K_a = self.Wk_a(h_t)  # (1, B, H)
-            V_a = self.Wv_a(h_t)  # (1, B, H)
+        K_a = self.Wk_a(h_enc)  # (N, B, H)
+        V_a = self.Wv_a(h_enc)  # (N, B, H)
+        
+        # >>> Legacy <<<
+        # if mem is not None:
+        #     cat = torch.cat([mem, h_t], dim=0)
+        #     K_a = self.Wk_a(cat)  # (1~N, B, H)
+        #     V_a = self.Wv_a(cat)  # (1~N, B, H)
+        # else:
+        #     K_a = self.Wk_a(h_t)  # (1, B, H)
+        #     V_a = self.Wv_a(h_t)  # (1, B, H)
 
         # Relative Multi-Head Attention
-        out = self.RMHA(q_a, K_a, V_a, r_a, bias_u, bias_v)
+        out, probs = self.RMHA(q_a, K_a, V_a, r_a, bias_u, bias_v)
         out = self.W0_a(out)
 
         # Add & Norm
@@ -135,7 +147,7 @@ class DecoderLayer(nn.Module):
         h_t = h_t + out
         h_t = self.norm3(h_t)
 
-        return h_t  # (1, B, H)
+        return h_t, probs  # (1, B, H)
 
 class TSPDecoder(nn.Module):
     """
@@ -166,12 +178,12 @@ class TSPDecoder(nn.Module):
         self.layers = nn.ModuleList([DecoderLayer(d_model, d_ff, n_head, dropout_rate, internal_drop, clip_value, pre_lnorm) for _ in range(n_layer)])
         self.classifier = nn.Linear(d_model, segm_len)
 
-    def reset_KV_sa(self):
-        for layer in self.layers:
-            layer.K_sa = None
-            layer.V_sa = None
+    # def reset_KV_sa(self):
+    #     for layer in self.layers:
+    #         layer.K_sa = None
+    #         layer.V_sa = None
 
-    def forward(self, h_t, *mems):
+    def forward(self, h_t, h_enc, mask, *mems):
         """
         Inputs:
             h_t : t-th token of current segment  # size=(1, B, H)
@@ -196,11 +208,8 @@ class TSPDecoder(nn.Module):
         hids.append(h_t)
         for i in range(self.n_layer):
             mem = mems[i] if mems is not None else None
-            h_t = self.layers[i](h_t, r, self.u, self.v, mem)  # (1, B, H), (1, N, B)
+            h_t, probs = self.layers[i](h_t, h_enc, r, self.u, self.v, mem)  # (1, B, H), (1, N, B)
             hids.append(h_t)
-
-        probs = self.classifier(h_t)  # (1, B, N)
-        probs = torch.softmax(probs, dim=-1)
 
 
         # update memory
