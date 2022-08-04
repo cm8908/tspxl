@@ -9,14 +9,10 @@ args.loss_fn = 'reinforce'
 args.optim = 'adam'
 args.learning_rate = 0.0001
 args.tol = 0.001
-args.update_step = False  # choose either
-args.update_intermediate = False  # choose either
-args.update_total = True  # choose either
-args.aggregation = 'simple_join'
 
 # Experimental #
-args.debug = False
-args.exp_dir = 'logs/seg_1'
+args.debug = True
+args.exp_dir = 'logs/?'
 args.seed = 1234
 args.log_interval = 500
 
@@ -29,6 +25,7 @@ args.multi_gpu = False  # currently not compatible with self.parameters()
 args.data_root = '../datasets'
 args.data_source = 'joshi'
 args.n_point = 50
+args.sorted = False
 args.bsz = 512
 args.segm_len = 25
 args.n_epoch = 10000
