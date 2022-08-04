@@ -55,7 +55,7 @@ class TSPXL(nn.Module):
         """
         Inputs
             x : 2D Euclidean TSP instance (segmented data)  # size=(N, B, 2)
-            target :   # size=(B, N)
+            target : including end token  # size=(B, N+1)
             mask : Initially zeros(B, H, N), keep being updated in `for t loop`
             mems : 
                 Initially tuple()
@@ -69,16 +69,13 @@ class TSPXL(nn.Module):
         
         h = self.input_emb(x)  # (N, B, H)
 
-        h = torch.cat([h, self.start_tokens.repeat(1,bsz,1)], dim=0)  # (N+1, B, H)
-
-        # Concat with start token
-        # h = torch.cat([h, self.start_tokens.repeat(bsz, 1, 1)], dim=0)  # (N+1, B, H)
+        h = torch.cat([self.start_tokens.repeat(1,bsz,1), h], dim=0)  # (N+1, B, H)
 
         # Encode it !
         h_enc, _ = self.encoder(h)  # (N, B, H)
 
         # Start token
-        h_start = h_enc[-1:, toB, :]  # FIXME:
+        h_start = h_enc[:1, toB, :]  # FIXME:
 
         tour = []
         probs_cat = []
@@ -89,7 +86,7 @@ class TSPXL(nn.Module):
         new_mems = []
         h_t = h_start
         for t in range(segment_len):
-            # h_t = h_enc[t:t+1]  
+            h_t = h_enc[t:t+1]  
 
             if not mems: mems = self._init_mems()
             '''
