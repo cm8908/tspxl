@@ -22,6 +22,7 @@ if args.cuda:
 
 import torch
 import numpy as np
+import pickle
 
 from torch import nn, optim
 from time import time
@@ -175,7 +176,7 @@ def update_model(tour, tour_b, sum_log_probs, data):
     dur = time() - start
     return dur, L_train.mean().item(), L_base.mean().item(), loss.mean().item()
 
-min_tour_length = None
+min_tour_length = torch.inf
 
 def eval_rl():
     global min_tour_length
@@ -233,17 +234,22 @@ def eval_rl():
         log('Baseline has been updated. Mean L_train ' +str(L_train_mean))
         log('@' * 100)
 
-    if min_tour_length > L_train_mean:
-        min_tour_length = L_train_mean
 
     # Save model if shorted tour length
-    if min_tour_length is not None:
+    if min_tour_length > L_train_mean:
         min_tour_length = L_train_mean
         save_checkpoint(model, optimizer, args.exp_dir, e)
         log('@' * 100)
         log('Model has been saved. Min Mean L_train '+str(min_tour_length))
         log('@' * 100)
 
+        example_path = os.path.join(args.exp_dir, f'example_{e}.pkl')
+        with open(example_path, 'wb') as f:
+            example = {
+                'tour': tour_cat, 'tour_b': tour_b_cat,
+                'L_train': L_train, 'L_base': L_base, 'data': full_data
+            }
+            pickle.dump(example, f)
 
     log('#' * 100)
     log_str = f'Eval Log -- (Step:{args.rl_eval_maxstep}) | Total Time {dur:.3f}s | Time per step {dur/args.rl_eval_maxstep:.3f}s | Mean L_train {L_train_mean:.5f} | Mean L_base {L_base_mean:.5f} | Mean Val Loss {val_loss_mean:.5f}'
