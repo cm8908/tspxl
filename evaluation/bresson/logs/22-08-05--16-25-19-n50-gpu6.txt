@@ -1,0 +1,25 @@
+22-08-05--16-25-19
+
+nb_nodes=50
+bsz=512
+dim_emb=128
+dim_ff=512
+dim_input_nodes=2
+nb_layers_encoder=6
+nb_layers_decoder=2
+nb_heads=8
+nb_epochs=10000
+nb_batch_per_epoch=2500
+nb_batch_eval=20
+gpu_id=6
+lr=0.0001
+tol=0.001
+batchnorm=True
+max_len_PE=1000
+
+
+Epoch: 0, epoch time: 28.809min, tot time: 0.020day, L_train: 7.814, L_base: 12.972, L_test: 7.826, gap_train(%): 37.276, update: True
+Epoch: 1, epoch time: 28.760min, tot time: 0.040day, L_train: 6.317, L_base: 7.815, L_test: 6.343, gap_train(%): 10.985, update: True
+Epoch: 2, epoch time: 28.820min, tot time: 0.060day, L_train: 6.030, L_base: 6.319, L_test: 6.048, gap_train(%): 5.933, update: True
+Epoch: 3, epoch time: 28.795min, tot time: 0.080day, L_train: 5.958, L_base: 6.026, L_test: 5.987, gap_train(%): 4.674, update: True
+Epoch: 4, epoch time: 28.798min, tot time: 0.100day, L_train: 5.947, L_base: 5.965, L_test: 5.974, gap_train(%): 4.482, update: True
