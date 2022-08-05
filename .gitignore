@@ -32,3 +32,4 @@ configs/__pycache__/default.cpython-310.pyc
 dum.pkl
 hf.ipynb
 configs/__pycache__/debug.cpython-310.pyc
+configs/__pycache__/tsp50_seg25_exp1.cpython-310.pyc
