@@ -14,14 +14,13 @@ class TSPXL(nn.Module):
         Self attention according to Transformer-XL
         Query attention to complete H_enc
     """
-    def __init__(self, d_model, d_ff, n_head, n_enc_layer, n_dec_layer, segm_len, bsz, deterministic, criterion,
+    def __init__(self, d_model, d_ff, n_head, n_enc_layer, n_dec_layer, segm_len, bsz, criterion,
                        dropout_rate, internal_drop, clip_value, pre_lnorm, clamp_len):
         super().__init__()
         self.segment_len = segm_len
         self.d_model = d_model
         self.n_enc_layer = n_enc_layer
         self.n_dec_layer = n_dec_layer
-        self.deterministic = deterministic
 
         self.input_emb = nn.Linear(2, d_model)
         self.start_tokens = nn.Parameter(torch.randn(d_model))
@@ -51,7 +50,7 @@ class TSPXL(nn.Module):
                 new_mems.append(cat[-start_idx:].detach())
         return new_mems
 
-    def forward(self, x, target, *mems):
+    def forward(self, x, target, deterministic, *mems):
         """
         Inputs
             x : 2D Euclidean TSP instance (segmented data)  # size=(N, B, 2)
@@ -95,7 +94,7 @@ class TSPXL(nn.Module):
             '''
             probs, hids, mems = self.decoder(h_t, h_enc[1:], mask, *mems)
 
-            if self.deterministic:
+            if deterministic:
                 city = probs.argmax(dim=1)  # (1, B)
             else:
                 city = Categorical(probs.permute(0,2,1)).sample()  # (1, B)

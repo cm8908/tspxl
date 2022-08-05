@@ -96,7 +96,6 @@ model = TSPXL(
     n_dec_layer=args.n_dec_layer,
     segm_len=args.segm_len,
     bsz=args.bsz,
-    deterministic=args.deterministic,
     criterion=criterion,
     dropout_rate=args.dropout_rate,
     internal_drop=args.internal_drop,
@@ -113,7 +112,6 @@ if args.rl:
     n_dec_layer=args.n_dec_layer,
     segm_len=args.segm_len,
     bsz=args.bsz,
-    deterministic=args.deterministic,
     criterion=criterion,
     dropout_rate=args.dropout_rate,
     internal_drop=args.internal_drop,
@@ -200,10 +198,10 @@ def eval_rl():
             mems_b = tuple()
 
             # for j, (data, _) in enumerate(val_loader.get_split_iter(full_data)):
-            ret = model(data, None, *mems)
+            ret = model(data, None, True, *mems)
             tour, sum_log_probs, probs_cat = ret
 
-            ret_b = baseline(data, None, *mems_b)
+            ret_b = baseline(data, None, True, *mems_b)
             tour_b, _, _ = ret_b
             
             # tour_list.append(tour)
@@ -298,13 +296,13 @@ def train_rl():
             sum_log_probs : (B)
             probs_cat : (N, N, B)
         '''
-        ret = model(data, None, *mems)
+        ret = model(data, None, args.deterministic, *mems)
         t_model_forward_dur = time() - t_model_forward_start
         t_model_forward_list.append(t_model_forward_dur)
         tour, sum_log_probs, heatmap = ret
 
         with torch.no_grad(): 
-            ret_b = baseline(data, None, *mems_b)
+            ret_b = baseline(data, None, True, *mems_b)
             tour_b, _, _ = ret_b
             
         # Update model using step tour
@@ -359,7 +357,7 @@ def train_rl():
             # mean_loss_track_total = np.mean(total_loss_track)
             
             log('#' * 100)
-            log_str = f'Train Log -- (Step:{i}) | Step Duration {t_one_batch:.3f}s | Mean Forward Time {t_model_forward_mean:.3f}'
+            log_str = f'Train Log -- (Step:{i}) | Batch Duration {t_one_batch:.3f}s | Mean Forward Time {t_model_forward_mean:.3f}'
             log_str += f'\n\tBackward Time {t_update_step:.3f}s | Mean L_train {mean_tour_train:.5f} | Mean L_base {mean_tour_base:.5f} | Mean Train Loss {mean_loss_track:.5f}'
             # if args.update_intermediate:
             #     log_str += f'\n\tIntermediate Backward time {t_update_interm:.3f}'
