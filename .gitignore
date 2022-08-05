@@ -35,3 +35,8 @@ configs/__pycache__/debug.cpython-310.pyc
 configs/__pycache__/tsp50_seg25_exp1.cpython-310.pyc
 evaluation/bresson/checkpoint/checkpoint_22-08-05--16-25-19-n50-gpu6.pkl
 evaluation/bresson/logs/22-08-05--16-25-19-n50-gpu6.txt
+evaluation/bresson/checkpoint/checkpoint_22-08-05--16-25-19-n50-gpu6.pkl
+evaluation/bresson/checkpoint/checkpoint_22-08-05--16-25-19-n50-gpu6.pkl
+evaluation/bresson/logs/22-08-05--16-25-19-n50-gpu6.txt
+evaluation/bresson/logs
+evaluation/bresson/checkpoint
