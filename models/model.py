@@ -72,10 +72,10 @@ class TSPXL(nn.Module):
         h = torch.cat([self.start_tokens.repeat(1,bsz,1), h], dim=0)  # (N+1, B, H)
 
         # Encode it !
-        h_enc, _ = self.encoder(h)  # (N, B, H)
+        h_enc, _ = self.encoder(h)  # (N+1, B, H)
 
         # Start token
-        h_start = h_enc[:1, toB, :]
+        h_start = h_enc[:1, toB, :]  # (1, B< H)
 
         # Track lists
         tour = []
