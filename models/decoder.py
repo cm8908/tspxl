@@ -1,6 +1,10 @@
 import torch
+from time import time
 from torch import nn
 from models.attention import MultiHeadSelfAttn, RelMultiHeadAttn
+T_DECODER_LOOP_LIST = []
+T_SELFATTN_LIST = []
+T_ATTN_LIST = []
 
 class PositionalEmbedding(nn.Module):
     """
@@ -103,9 +107,12 @@ class DecoderLayer(nn.Module):
         #     self.K_sa = torch.cat([self.K_sa, k_sa], dim=0)  # (1~N B, H)
         #     self.V_sa = torch.cat([self.V_sa, k_sa], dim=0)  # (1~N B, H)
         
+        t_selfattn_start = time()
         # Multi-Head Self-Attention
         out = self.MHSA(q_sa, K_sa, V_sa)  # size(out)=(1, B, H)
         out = self.W0_sa(out)  # (1, B, H)
+        t_selfattn = time() - t_selfattn_start
+        T_SELFATTN_LIST.append(t_selfattn)
 
         # Add & Norm
         h_t = h_t + out  # (1, B, H)
@@ -130,9 +137,12 @@ class DecoderLayer(nn.Module):
         #     K_a = self.Wk_a(h_t)  # (1, B, H)
         #     V_a = self.Wv_a(h_t)  # (1, B, H)
 
+        t_attn_start = time()
         # Relative Multi-Head Attention
         out, probs = self.RMHA(q_a, K_a, V_a, r_a, bias_u, bias_v, mask)
         out = self.W0_a(out)
+        t_attn = time() - t_attn_start
+        T_ATTN_LIST.append(t_attn)
 
         # Add & Norm
         h_t = h_t + out
@@ -206,10 +216,14 @@ class TSPDecoder(nn.Module):
         # Loop for each decoder layer
         hids = []
         hids.append(h_t)
+        t_decoder_loop_start = time()
         for i in range(self.n_layer):
             mem = mems[i] if mems is not None else None
             h_t, probs = self.layers[i](h_t, h_enc, r, self.u, self.v, mask, mem)  # (1, B, H), (1, N, B)
             hids.append(h_t)
+        
+        t_decoder_loop = time() - t_decoder_loop_start
+        T_DECODER_LOOP_LIST.append(t_decoder_loop)
 
 
         # update memory

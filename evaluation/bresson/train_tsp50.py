@@ -91,7 +91,11 @@ args.batchnorm = True  # if batchnorm=True  than batch norm is used
 args.max_len_PE = 1000
 
 args.log_interval = 500
-
+T_ENCODER_LIST = []
+T_DECODER_LIST = []
+T_LOOP_LIST = []
+T_SELFATTN_LIST = []
+T_ATTN_LIST = []
 print(args)
 
 
@@ -309,12 +313,18 @@ class AutoRegressiveDecoderLayer(nn.Module):
             self.K_sa = torch.cat([self.K_sa, k_sa], dim=1)
             self.V_sa = torch.cat([self.V_sa, v_sa], dim=1)
         # compute self-attention between nodes in the partial tour
+        t_selfattn_start = time.time()
         h_t = h_t + self.W0_selfatt( myMHA(q_sa, self.K_sa, self.V_sa, self.nb_heads)[0] ) # size(h_t)=(bsz, 1, dim_emb)
+        t_selfattn = time.time() - t_selfattn_start
+        T_SELFATTN_LIST.append(t_selfattn)
         h_t = self.BN_selfatt(h_t.squeeze()) # size(h_t)=(bsz, dim_emb)
         h_t = h_t.view(bsz, 1, self.dim_emb) # size(h_t)=(bsz, 1, dim_emb)
         # compute attention between self-attention nodes and encoding nodes in the partial tour (translation process)
         q_a = self.Wq_att(h_t) # size(q_a)=(bsz, 1, dim_emb)
+        t_attn_start = time.time()
         h_t = h_t + self.W0_att( myMHA(q_a, K_att, V_att, self.nb_heads, mask)[0] ) # size(h_t)=(bsz, 1, dim_emb)
+        t_attn = time.time() - t_attn_start
+        T_ATTN_LIST.append(t_attn)
         h_t = self.BN_att(h_t.squeeze()) # size(h_t)=(bsz, dim_emb)
         h_t = h_t.view(bsz, 1, self.dim_emb) # size(h_t)=(bsz, 1, dim_emb)
         # MLP
@@ -430,8 +440,11 @@ class TSP_net(nn.Module):
         # concat the nodes and the input placeholder that starts the decoding
         h = torch.cat([h, self.start_placeholder.repeat(bsz, 1, 1)], dim=1) # size(start_placeholder)=(bsz, nb_nodes+1, dim_emb)
         
+        t_encoder_start = time.time()
         # encoder layer
         h_encoder, _ = self.encoder(h) # size(h)=(bsz, nb_nodes+1, dim_emb)
+        t_encoder = time.time() - t_encoder_start
+        T_ENCODER_LIST.append(t_encoder)
 
         # list that will contain Long tensors of shape (bsz,) that gives the idx of the cities chosen at time t
         tours = []
@@ -455,12 +468,16 @@ class TSP_net(nn.Module):
         # clear key and val stored in the decoder
         self.decoder.reset_selfatt_keys_values()
 
+        t_loop_start = time.time()
         # construct tour recursively
         h_t = h_start
         for t in range(nb_nodes):
             
             # compute probability over the next node in the tour
+            t_decoder_start = time.time()
             prob_next_node = self.decoder(h_t, K_att_decoder, V_att_decoder, mask_visited_nodes) # size(prob_next_node)=(bsz, nb_nodes+1)
+            t_decoder = time.time() - t_decoder_start
+            T_DECODER_LIST.append(t_decoder)
             
             # choose node with highest probability or sample with Bernouilli 
             if deterministic:
@@ -484,6 +501,8 @@ class TSP_net(nn.Module):
             mask_visited_nodes[zero_to_bsz, idx] = True
             
             
+        t_loop = time.time() - t_loop_start
+        T_LOOP_LIST.append(t_loop)
         # logprob_of_choices = sum_t log prob( pi_t | pi_(t-1),...,pi_0 )
         sumLogProbOfActions = torch.stack(sumLogProbOfActions,dim=1).sum(dim=1) # size(sumLogProbOfActions)=(bsz,)
 
@@ -578,6 +597,8 @@ for epoch in range(0,args.nb_epochs):
     model_train.train()
 
     t_one_batch_list = []
+    t_forward_list = []
+    t_backward_list = []
 
     for step in range(1,args.nb_batch_per_epoch+1):    
 
@@ -585,13 +606,18 @@ for epoch in range(0,args.nb_epochs):
         # generate a batch of random TSP instances    
         x = torch.rand(args.bsz, args.nb_nodes, args.dim_input_nodes, device=device) # size(x)=(bsz, nb_nodes, dim_input_nodes) 
 
+
+        t_forward_start = time.time()
         # compute tours for model
         tour_train, sumLogProbOfActions = model_train(x, deterministic=False) # size(tour_train)=(bsz, nb_nodes), size(sumLogProbOfActions)=(bsz)
+        t_forward = time.time() - t_forward_start
+        t_forward_list.append(t_forward)
       
         # compute tours for baseline
         with torch.no_grad():
             tour_baseline, _ = model_baseline(x, deterministic=True)
 
+        t_backward_start = time.time()
         # get the lengths of the tours
         L_train = compute_tour_length(x, tour_train) # size(L_train)=(bsz)
         L_baseline = compute_tour_length(x, tour_baseline) # size(L_baseline)=(bsz)
@@ -602,12 +628,23 @@ for epoch in range(0,args.nb_epochs):
         loss.backward()
         optimizer.step()
 
+        t_backward = time.time() - t_backward_start
+        t_backward_list.append(t_backward)
+
         t_one_batch = time.time() - t_one_batch_start
         t_one_batch_list.append(t_one_batch)
 
         if step % args.log_interval == 0:
             t_one_batch_mean = np.mean(t_one_batch_list)
-            print(t_one_batch_mean)
+            t_forward_mean = np.mean(t_forward_list)
+            t_backward_mean = np.mean(t_backward_list)
+            t_encoder_mean = np.mean(T_ENCODER_LIST)
+            t_decoder_mean = np.mean(T_DECODER_LIST)
+            t_loop_mean = np.mean(T_LOOP_LIST)
+            t_selfattn_mean = np.mean(T_SELFATTN_LIST)
+            t_attn_mean = np.mean(T_ATTN_LIST)
+            log_str = f'Batch Durarion {t_one_batch_mean} | Forward Time {t_forward_mean} | Backward Time {t_backward_mean} | Encoder {t_encoder_mean} | Decoder {t_decoder_mean} | Loop {t_loop_mean} | SelfAttn {t_selfattn_mean} | Attn {t_attn_mean}'
+            print(log_str)
         
     time_one_epoch = time.time()-start
     time_tot = time.time()-start_training_time + tot_time_ckpt

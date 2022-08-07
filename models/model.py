@@ -1,9 +1,14 @@
 import torch
+from time import time
 from torch import nn
 from torch.distributions import Categorical
 
 from .encoder import TSPEncoder
 from .decoder import TSPDecoder
+
+T_ENCODER_LIST = []
+T_DECODER_LIST = []
+T_LOOP_LIST = []
 
 class TSPXL(nn.Module):
     """
@@ -71,8 +76,11 @@ class TSPXL(nn.Module):
 
         h = torch.cat([self.start_tokens.repeat(1,bsz,1), h], dim=0)  # (N+1, B, H)
 
+        t_encoder_start = time()
         # Encode it !
         h_enc, _ = self.encoder(h)  # (N+1, B, H)
+        t_encoder = time() - t_encoder_start
+        T_ENCODER_LIST.append(t_encoder)
 
         # Start token
         h_start = h_enc[:1, toB, :]  # (1, B< H)
@@ -86,13 +94,17 @@ class TSPXL(nn.Module):
         h_t = h_start
         # for segment in self.segment_iter():  # data : (L, B, H)
         mask = torch.zeros(1, N, bsz).bool().to(x.device)
+        t_loop_start = time()
         for t in range(N):
             if not mems: mems = self._init_mems()
             '''
             probs : (1, N, B)
             hids, mems : len=n_dec_layer+1, size(hid)=(1,B,H), size(mem)=(N,B,H)
             '''
+            t_decoder_start = time()
             probs, hids, mems = self.decoder(h_t, h_enc[1:], mask, *mems)
+            t_decoder = time() - t_decoder_start
+            T_DECODER_LIST.append(t_decoder)
 
             if deterministic:
                 city = probs.argmax(dim=1)  # (1, B)
@@ -116,6 +128,8 @@ class TSPXL(nn.Module):
 
             h_t = h_enc[city_idx, toB, :].unsqueeze(0)
 
+        t_loop = time() - t_loop_start
+        T_LOOP_LIST.append(t_loop)
         # >>> Legacy <<<
         # self.decoder.reset_KV_sa()
         # mask = torch.zeros(1, bsz, segment_len, device=x.device).bool()

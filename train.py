@@ -3,8 +3,10 @@
 """
 import importlib
 from argparse import ArgumentParser
+
 parser = ArgumentParser()
 parser.add_argument('-c', dest='config_name', type=str, default='debug', help='Choose hyperparameter configuration file')
+parser.add_argument('-r', dest='restart', type=int, default=-1, help='Epoch of model to restore')
 cmd_args = parser.parse_args()
 config_filename = 'configs.' + cmd_args.config_name
 args = importlib.import_module(config_filename).args
@@ -27,7 +29,8 @@ import pickle
 from torch import nn, optim
 from time import time
 from datetime import datetime
-from models.model import TSPXL
+from models.model import TSPXL, T_ENCODER_LIST, T_DECODER_LIST, T_LOOP_LIST
+from models.decoder import T_DECODER_LOOP_LIST, T_SELFATTN_LIST, T_ATTN_LIST
 from utils.exp_utils import create_exp_dir, save_checkpoint
 from utils.data_utils import RandomTSPGenerator, SortedTSPGenerator, TSPDataset
 
@@ -343,10 +346,16 @@ def train_rl():
         #     total_L_base_track.append(L_base)
         #     total_loss_track.append(loss)
 
-        if i % args.log_interval == 0:
+        if (i+1) % args.log_interval == 0:
             t_one_batch = time() - t_one_batch_start
             t_model_forward_mean = np.mean(t_model_forward_list)
             t_update_step = np.mean(t_update_list)
+            t_encoder_mean = np.mean(T_ENCODER_LIST)
+            t_decoder_mean = np.mean(T_DECODER_LIST)
+            t_loop_mean = np.mean(T_LOOP_LIST)
+            t_decoder_loop_mean = np.mean(T_DECODER_LOOP_LIST)
+            t_selfattn_mean = np.mean(T_SELFATTN_LIST)
+            t_attn_mean = np.mean(T_ATTN_LIST)
             # t_update_interm = np.mean(t_update_interm_list)
             # t_update_total = np.mean(t_update_total_list)
             mean_tour_train = np.mean(L_train_track)
@@ -355,10 +364,12 @@ def train_rl():
             # mean_tour_train_total = np.mean(total_L_train_track)
             # mean_tour_base_total = np.mean(total_L_base_track)
             # mean_loss_track_total = np.mean(total_loss_track)
+
             
             log('#' * 100)
             log_str = f'Train Log -- (Step:{i}) | Batch Duration {t_one_batch:.3f}s | Mean Forward Time {t_model_forward_mean:.3f}'
             log_str += f'\n\tBackward Time {t_update_step:.3f}s | Mean L_train {mean_tour_train:.5f} | Mean L_base {mean_tour_base:.5f} | Mean Train Loss {mean_loss_track:.5f}'
+            log_str += f' | Encoder Time {t_encoder_mean} | Decoder Time {t_decoder_mean} | Loop Time {t_loop_mean} | Decoder Loop {t_decoder_loop_mean} | SelfAttn {t_selfattn_mean} | Attn {t_attn_mean}'
             # if args.update_intermediate:
             #     log_str += f'\n\tIntermediate Backward time {t_update_interm:.3f}'
             # if args.update_total:
@@ -377,6 +388,14 @@ def eval_sl():
 def train_sl():
     pass
 
+if cmd_args.restart > 0:
+    log(f'Restarting from epoch {cmd_args.restart}')
+    model_to_load = os.path.join(args.exp_dir, f'model_{cmd_args.restart}.pt')
+    opt_to_load = os.path.join(args.exp_dir, f'optimizer_{cmd_args.restart}.pt')
+    with open(model_to_load, 'rb') as m, open(opt_to_load, 'rb') as o:
+        model = torch.load(m)
+        optimizer.load_state_dict(torch.load(o))
+        print(type(model), type(optimizer))
 try:
     t_train_start = time()
     for e in range(args.n_epoch):
