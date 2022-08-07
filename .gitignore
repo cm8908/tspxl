@@ -36,3 +36,16 @@ configs/__pycache__/tsp50_seg25_exp1.cpython-310.pyc
 evaluation/bresson/checkpoint/checkpoint_22-08-05--16-25-19-n50-gpu6.pkl
 evaluation/bresson/logs/22-08-05--16-25-19-n50-gpu6.txt
 
+evaluation/bresson/__pycache__/train_tsp50.cpython-310.pyc
+evaluation/bresson/checkpoint/checkpoint_22-08-05--16-25-19-n50-gpu6.pkl
+evaluation/bresson/checkpoint/checkpoint_22-08-05--19-43-13-n50-gpu5.pkl
+evaluation/bresson/checkpoint/checkpoint_22-08-05--20-55-48-n50-gpu5.pkl
+evaluation/bresson/checkpoint/checkpoint_22-08-07--16-36-01-n50-gpu5.pkl
+evaluation/bresson/logs/22-08-05--16-25-19-n50-gpu6.txt
+evaluation/bresson/logs/22-08-05--19-32-38-n50-gpu5.txt
+evaluation/bresson/logs/22-08-05--19-43-13-n50-gpu5.txt
+evaluation/bresson/logs/22-08-05--20-40-32-n50-gpu5.txt
+evaluation/bresson/logs/22-08-05--20-47-51-n50-gpu5.txt
+evaluation/bresson/logs/22-08-05--20-55-48-n50-gpu5.txt
+evaluation/bresson/logs/22-08-07--16-36-01-n50-gpu5.txt
+timechecking.ipynb
