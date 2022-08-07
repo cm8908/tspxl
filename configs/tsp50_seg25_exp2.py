@@ -2,6 +2,9 @@ class DotDict(dict):
     def __getattr__(self, key):
         return self[key]
 args = DotDict()
+'''
+Last SHA 적용
+'''
 
 # Learning Method #
 args.rl = True
@@ -11,14 +14,14 @@ args.learning_rate = 0.0001
 args.tol = 0.001
 
 # Experimental #
-args.debug = True
-args.exp_dir = 'logs/?'
+args.debug = False
+args.exp_dir = 'logs/tsp50_seg25_exp2'
 args.seed = 1234
-args.log_interval = 5
+args.log_interval = 500
 
 # GPU #
 args.cuda = True
-args.gpu_id = "4"
+args.gpu_id = "7"
 args.multi_gpu = False  # currently not compatible with self.parameters()
 
 # Data-Related #
@@ -29,8 +32,8 @@ args.sorted = False
 args.bsz = 512
 args.segm_len = 25
 args.n_epoch = 10000
-args.rl_maxstep = 2500  # batch per epoch and eval interval
-args.rl_eval_maxstep = 20
+args.rl_maxstep = 2500  # nb_batch_per_epoch and eval interval
+args.rl_eval_maxstep = 20  # nb_batch_eval
 
 # Model Hyperparameters #
 args.d_model = 128
@@ -43,6 +46,6 @@ args.n_dec_layer = 2
 args.deterministic = False
 args.pre_lnorm = True
 args.dropout_rate = 0.1
-args.internal_drop = -1
+args.internal_drop = 0.1
 args.clip_value = 10
 args.clamp_len = -1
