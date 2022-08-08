@@ -49,3 +49,6 @@ evaluation/bresson/logs/22-08-05--20-47-51-n50-gpu5.txt
 evaluation/bresson/logs/22-08-05--20-55-48-n50-gpu5.txt
 evaluation/bresson/logs/22-08-07--16-36-01-n50-gpu5.txt
 timechecking.ipynb
+configs/__pycache__/tsp50_seg25_exp2.cpython-310.pyc
+evaluation/bresson/checkpoint/checkpoint_22-08-05--16-25-19-n50-gpu6.pkl
+evaluation/bresson/logs/22-08-05--16-25-19-n50-gpu6.txt
