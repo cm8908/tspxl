@@ -3,8 +3,8 @@ from time import time
 from torch import nn
 from torch.distributions import Categorical
 
-from encoder import TSPEncoder
-from decoder import TSPDecoder
+from models.encoder import TSPEncoder
+from models.decoder import TSPDecoder
 
 T_ENCODER_LIST = []
 T_DECODER_LIST = []
@@ -76,7 +76,7 @@ class TSPXL(nn.Module):
         
         h = self.input_emb(x)  # (N, B, H)
 
-        h = torch.cat([self.start_tokens.repeat(1,bsz,1), h], dim=0)  # (N+1, B, H)
+        h = torch.cat([h, self.start_tokens.repeat(1,bsz,1)], dim=0)  # (N+1, B, H)
 
         t_encoder_start = time()
         # Encode it !
@@ -85,7 +85,7 @@ class TSPXL(nn.Module):
         T_ENCODER_LIST.append(t_encoder)
 
         # Start token
-        h_start = h_enc[:1, toB, :]  # (1, B, H)
+        h_start = h_enc[-1:, toB, :]  # (1, B, H)
 
         # Track lists
         tour = []
@@ -94,7 +94,7 @@ class TSPXL(nn.Module):
 
         # Initializing mask
         mask = torch.zeros(1, N+1, bsz, device=x.device).bool()
-        mask[:, 0, :] = True
+        mask[:, -1, :] = True
 
         # Decode it !
         h_t = h_start
