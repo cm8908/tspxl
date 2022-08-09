@@ -3,8 +3,8 @@ from time import time
 from torch import nn
 from torch.distributions import Categorical
 
-from .encoder import TSPEncoder
-from .decoder import TSPDecoder
+from encoder import TSPEncoder
+from decoder import TSPDecoder
 
 T_ENCODER_LIST = []
 T_DECODER_LIST = []
@@ -27,7 +27,7 @@ class TSPXL(nn.Module):
         self.n_enc_layer = n_enc_layer
         self.n_dec_layer = n_dec_layer
 
-        self.W_kv_decoder = nn.Linear(d_model, d_model*2)
+        self.W_kv_decoder = nn.Linear(d_model, n_dec_layer*d_model*2)
 
         self.input_emb = nn.Linear(2, d_model)
         self.start_tokens = nn.Parameter(torch.randn(d_model))
@@ -92,11 +92,14 @@ class TSPXL(nn.Module):
         probs_cat = []
         log_probs = []
 
+        # Initializing mask
+        mask = torch.zeros(1, N+1, bsz, device=x.device).bool()
+        mask[:, 0, :] = True
+
         # Decode it !
         h_t = h_start
         KV_a = self.W_kv_decoder(h_enc)
-        K_a, V_a = torch.chunk(KV_a, 2, dim=-1)
-        mask = torch.zeros(1, N, bsz).bool().to(x.device)
+        K_a, V_a = torch.chunk(KV_a, 2, dim=-1)  # (N+1, B, H*n_dec_layer)
         t_loop_start = time()
         for t in range(N):
             if not mems: mems = self._init_mems()
@@ -105,7 +108,7 @@ class TSPXL(nn.Module):
             hids, mems : len=n_dec_layer+1, size(hid)=(1,B,H), size(mem)=(N,B,H)
             '''
             t_decoder_start = time()
-            probs, hids, mems = self.decoder(h_t, h_enc[1:], K_a, V_a, mask, *mems)
+            probs, hids, mems = self.decoder(h_t, K_a, V_a, mask, *mems)
             t_decoder = time() - t_decoder_start
             T_DECODER_LIST.append(t_decoder)
 
@@ -197,7 +200,7 @@ if __name__ == '__main__':
     bsz, d_model, n_class, segm_len = 100, 128, 50, 25
     crit = nn.NLLLoss()
     oz = torch.optim.Adam
-    model = TSPXL(d_model=d_model, d_ff=512, n_head=8, n_enc_layer=6, n_dec_layer=2, segm_len=segm_len, bsz=bsz, deterministic=False, criterion=crit, dropout_rate=0.1, internal_drop=-1, clip_value=-1, pre_lnorm=True, clamp_len=-1).to(device)
+    model = TSPXL(d_model=d_model, d_ff=512, n_head=8, n_enc_layer=6, n_dec_layer=2, segm_len=segm_len, bsz=bsz,  criterion=crit, dropout_rate=0.1, internal_drop=-1, clip_value=-1, pre_lnorm=True, clamp_len=-1).to(device)
 
     mems = tuple()
 
@@ -205,7 +208,7 @@ if __name__ == '__main__':
     targ = torch.randint(0,n_class,(bsz,n_class)).to(device)
     mask = torch.zeros(1, n_class, bsz)
 
-    ret = model(x, targ, *mems)
+    ret = model(x, targ, deterministic=False, *mems)
     tour, log_probs, probs_cat, new_mems = ret
 
     ret2 = model(x, targ, *new_mems)
