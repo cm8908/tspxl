@@ -57,7 +57,3 @@ evaluation/bresson/logs/22-08-05--16-25-19-n50-gpu6.txt
 **/checkpoint
 **/*.pkl
 **/*.pt
-evaluation/bresson/__pycache__/r_decoderxl.cpython-310.pyc
-tspxl.code-workspace
-evaluation/bresson/record_time.ipynb
-evaluation/bresson/record_time.ipynb
