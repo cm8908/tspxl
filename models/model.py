@@ -32,6 +32,7 @@ class TSPXL(nn.Module):
         self.Wk_decoder = nn.Linear(d_model, n_dec_layer * d_model)
         self.Wv_decoder = nn.Linear(d_model, n_dec_layer * d_model)
 =======
+        self.W_kv_decoder = nn.Linear(d_model, n_dec_layer*d_model*2)
 >>>>>>> 474dd914ac32b12d4072429ada4150b38de5ab10
 
         self.input_emb = nn.Linear(2, d_model)

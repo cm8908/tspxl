@@ -1,0 +1,15 @@
+{
+	"folders": [
+		{
+			"name": "tspxl",
+			"path": "."
+		}
+	],
+	"settings": {
+		"python.linting.enabled": false,
+		"python.linting.pylintEnabled": true,
+		"files.exclude": {
+			"**/__pycache__": true
+		}
+	}
+}
