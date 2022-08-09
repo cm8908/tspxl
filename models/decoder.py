@@ -1,7 +1,7 @@
 import torch
 from time import time
 from torch import nn
-from models.attention import MultiHeadAttn, MultiHeadSelfAttn, RelMultiHeadAttn
+from attention import MultiHeadAttn, MultiHeadSelfAttn, RelMultiHeadAttn
 T_DECODER_LOOP_LIST = []
 T_SELFATTN_LIST = []
 T_ATTN_LIST = []
@@ -77,7 +77,7 @@ class DecoderLayer(nn.Module):
         # )
         pass
 
-    def forward(self, h_t, h_enc, r, bias_u, bias_v, mask, mem):
+    def forward(self, h_t, K_a, V_a, r, bias_u, bias_v, mask, mem):
         """
         Inputs:
             h_t : token in query  # size=(1, B, H)
@@ -125,8 +125,6 @@ class DecoderLayer(nn.Module):
         except: pass
         q_a = self.Wq_a(h_t)  # (1, B, H)
         r_a = self.Wr_a(r)  # (N, 1, H)
-        K_a = self.Wk_a(h_enc)  # (N, B, H)
-        V_a = self.Wv_a(h_enc)  # (N, B, H)
         
         # >>> Legacy <<<
         # if mem is not None:
@@ -170,12 +168,10 @@ class DecoderLastLayer(nn.Module):
         self.u_final = nn.Parameter(torch.randn(1, d_model))
         self.v_final = nn.Parameter(torch.randn(1, d_model))
 
-    def forward(self, h_t, h_enc, r, mask):
+    def forward(self, h_t, K_a, V_a, r, mask):
         q_final = self.Wq_final(h_t)  # (1, B, H)
-        k_final = self.Wk_final(h_enc)  # (N, B, H)
-        v_final = self.Wv_final(h_enc)  # (N, B, H)
         r_final = self.Wr_final(r)  # (N, 1, H)
-        h_t, probs = self.SHA(q_final, k_final, v_final, r_final, self.u_final, self.v_final, mask)  # (1, N, B)
+        h_t, probs = self.SHA(q_final, K_a, V_a, r_final, self.u_final, self.v_final, mask)  # (1, N, B)
         return h_t, probs
 
 class TSPDecoder(nn.Module):
@@ -195,6 +191,7 @@ class TSPDecoder(nn.Module):
 
         super().__init__()
 
+        self.d_model = d_model
         self.n_layer = n_layer
         self.clamp_len = clamp_len
 
@@ -204,29 +201,33 @@ class TSPDecoder(nn.Module):
 
         self.pos_emb = PositionalEmbedding(d_model)
 
+
         self.layers = nn.ModuleList([DecoderLayer(d_model, d_ff, n_head, dropout_rate, internal_drop, clip_value, pre_lnorm) for _ in range(n_layer - 1)])
         self.last_layer = DecoderLastLayer(d_model, clip_value)
-        self.classifier = nn.Linear(d_model, segm_len)
+        # self.classifier = nn.Linear(d_model, segm_len)
 
     # def reset_KV_sa(self):
     #     for layer in self.layers:
     #         layer.K_sa = None
     #         layer.V_sa = None
 
-    def forward(self, h_t, h_enc, mask, *mems):
+    def forward(self, h_t, K_a, V_a, mask, *mems):
         """
         Inputs:
             h_t : t-th token of current segment  # size=(1, B, H)
+            K_a : key for enc-dec attention  # size=(N+1, B, )
             mems : list of memory  # size(each mem)=(0~N,B,H)
             mask : mask for visited city same size with classifier # size=(1, N, B)
         """
+        # Preparing Wq, Wk
         # Preparing positional encoding
         qlen = h_t.size(0)
         mlen = mems[0].size(0) if mems is not None else 0
         # klen = mlen + h_enc.size(0)
         klen = mlen + qlen
 
-        pos_seq = torch.arange(h_enc.size(0)-1, -1, -1.0, device=h_t.device, dtype=h_t.dtype)
+        # TOOD:
+        pos_seq = torch.arange(K_a.size(0)-1, -1, -1.0, device=h_t.device, dtype=h_t.dtype)
         if self.clamp_len > 0:
             pos_seq.clamp_(max=self.clamp_len)
         r = self.pos_emb(pos_seq)
@@ -238,10 +239,12 @@ class TSPDecoder(nn.Module):
         hids.append(h_t)
         t_decoder_loop_start = time()
         for i in range(self.n_layer - 1):
+            K_a_l = K_a[:,:,i*self.d_model:(i+1)*self.d_model].contiguous()
+            V_a_l = V_a[:,:,i*self.d_model:(i+1)*self.d_model].contiguous()
             mem = mems[i] if mems is not None else None
-            h_t, probs = self.layers[i](h_t, h_enc, r, self.u, self.v, mask, mem)  # (1, B, H), (1, N, B)
+            h_t, probs = self.layers[i](h_t, K_a_l, V_a_l, r, self.u, self.v, mask, mem)  # (1, B, H), (1, N, B)
             hids.append(h_t)
-        h_t, probs = self.last_layer(h_t, h_enc, r, mask)
+        h_t, probs = self.last_layer(h_t, K_a_l, V_a_l, r, mask)
         hids.append(h_t)
         
         t_decoder_loop = time() - t_decoder_loop_start
@@ -261,7 +264,7 @@ if __name__ == '__main__':
     # mems = [torch.randn(n_class, B, H) for _ in range(n_layer + 1)]
     mems = [torch.empty(0) for _ in range(n_layer+1)]
 
-    decoder = TSPDecoder(d_model=H, d_ff=512, n_layer=n_layer, n_head=8, n_class=n_class, clamp_len=-1, bsz=B, dropout_rate=0.1, internal_drop=-1, clip_value=-1, pre_lnorm=True)
+    decoder = TSPDecoder(segm_len=25, d_model=H, d_ff=512, n_layer=n_layer, n_head=8, clamp_len=-1, bsz=B, dropout_rate=0.1, internal_drop=-1, clip_value=-1, pre_lnorm=True)
 
     ret = decoder(h_t, mask=None, mems=mems)
     probs, hids, mems = ret
