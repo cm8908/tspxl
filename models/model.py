@@ -27,13 +27,9 @@ class TSPXL(nn.Module):
         self.n_enc_layer = n_enc_layer
         self.n_dec_layer = n_dec_layer
 
-<<<<<<< HEAD
         # self.W_kv_decoder = nn.Linear(d_model, n_dec_layer*d_model*2)
         self.Wk_decoder = nn.Linear(d_model, n_dec_layer * d_model)
         self.Wv_decoder = nn.Linear(d_model, n_dec_layer * d_model)
-=======
-        self.W_kv_decoder = nn.Linear(d_model, n_dec_layer*d_model*2)
->>>>>>> 474dd914ac32b12d4072429ada4150b38de5ab10
 
         self.input_emb = nn.Linear(2, d_model)
         self.start_tokens = nn.Parameter(torch.randn(d_model))
@@ -104,14 +100,9 @@ class TSPXL(nn.Module):
 
         # Decode it !
         h_t = h_start
-<<<<<<< HEAD
         # KV_a = self.W_kv_decoder(h_enc)
         # K_a, V_a = torch.chunk(KV_a, 2, dim=-1)  # (N+1, B, H*n_dec_layer)
         K_a, V_a = self.Wk_decoder(h_enc), self.Wv_decoder(h_enc)
-=======
-        KV_a = self.W_kv_decoder(h_enc)
-        K_a, V_a = torch.chunk(KV_a, 2, dim=-1)  # (N+1, B, H*n_dec_layer)
->>>>>>> 474dd914ac32b12d4072429ada4150b38de5ab10
         t_loop_start = time()
         for t in range(N):
             if not mems: mems = self._init_mems()
