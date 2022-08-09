@@ -1,7 +1,7 @@
 import torch
 from time import time
 from torch import nn
-from attention import MultiHeadAttn, MultiHeadSelfAttn, RelMultiHeadAttn
+from models.attention import MultiHeadAttn, MultiHeadSelfAttn, RelMultiHeadAttn
 T_DECODER_LOOP_LIST = []
 T_SELFATTN_LIST = []
 T_ATTN_LIST = []
