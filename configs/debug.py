@@ -18,7 +18,7 @@ args.log_interval = 5
 
 # GPU #
 args.cuda = True
-args.gpu_id = "4"
+args.gpu_id = "5"
 args.multi_gpu = False  # currently not compatible with self.parameters()
 
 # Data-Related #

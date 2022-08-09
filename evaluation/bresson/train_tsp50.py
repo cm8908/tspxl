@@ -90,7 +90,7 @@ args.batchnorm = True  # if batchnorm=True  than batch norm is used
 #args.batchnorm = False # if batchnorm=False than layer norm is used
 args.max_len_PE = 1000
 
-args.log_interval = 500
+args.log_interval = 5
 T_ENCODER_LIST = []
 T_DECODER_LIST = []
 T_LOOP_LIST = []
