@@ -27,6 +27,8 @@ class TSPXL(nn.Module):
         self.n_enc_layer = n_enc_layer
         self.n_dec_layer = n_dec_layer
 
+        self.W_kv_decoder = nn.Linear(d_model, d_model*2)
+
         self.input_emb = nn.Linear(2, d_model)
         self.start_tokens = nn.Parameter(torch.randn(d_model))
         self.encoder = TSPEncoder(d_model, d_ff, n_head, n_enc_layer)
@@ -83,7 +85,7 @@ class TSPXL(nn.Module):
         T_ENCODER_LIST.append(t_encoder)
 
         # Start token
-        h_start = h_enc[:1, toB, :]  # (1, B< H)
+        h_start = h_enc[:1, toB, :]  # (1, B, H)
 
         # Track lists
         tour = []
@@ -92,7 +94,8 @@ class TSPXL(nn.Module):
 
         # Decode it !
         h_t = h_start
-        # for segment in self.segment_iter():  # data : (L, B, H)
+        KV_a = self.W_kv_decoder(h_enc)
+        K_a, V_a = torch.chunk(KV_a, 2, dim=-1)
         mask = torch.zeros(1, N, bsz).bool().to(x.device)
         t_loop_start = time()
         for t in range(N):
@@ -102,7 +105,7 @@ class TSPXL(nn.Module):
             hids, mems : len=n_dec_layer+1, size(hid)=(1,B,H), size(mem)=(N,B,H)
             '''
             t_decoder_start = time()
-            probs, hids, mems = self.decoder(h_t, h_enc[1:], mask, *mems)
+            probs, hids, mems = self.decoder(h_t, h_enc[1:], K_a, V_a, mask, *mems)
             t_decoder = time() - t_decoder_start
             T_DECODER_LIST.append(t_decoder)
 
