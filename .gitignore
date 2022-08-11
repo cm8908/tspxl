@@ -73,3 +73,10 @@ evaluation/tsp_transformer/configs/__pycache__/tsp50_att3.cpython-310.pyc
 evaluation/tsp_transformer/utils/__pycache__/__init__.cpython-310.pyc
 evaluation/tsp_transformer/utils/__pycache__/data_utils.cpython-310.pyc
 evaluation/tsp_transformer/utils/__pycache__/exp_utils.cpython-310.pyc
+configs/debug.py
+evaluation/bresson/compare.ipynb
+evaluation/bresson/decoderxl.py
+evaluation/bresson/r_decoderxl.py
+evaluation/bresson/train_bresson.py
+evaluation/bresson/train_tsp50.py
+evaluation/bresson/__pycache__/train_bresson.cpython-310.pyc
