@@ -201,7 +201,6 @@ class TSPDecoder(nn.Module):
 
         self.pos_emb = PositionalEmbedding(d_model)
 
-
         self.layers = nn.ModuleList([DecoderLayer(d_model, d_ff, n_head, dropout_rate, internal_drop, clip_value, pre_lnorm) for _ in range(n_layer - 1)])
         self.last_layer = DecoderLastLayer(d_model, clip_value)
         # self.classifier = nn.Linear(d_model, segm_len)

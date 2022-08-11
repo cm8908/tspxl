@@ -7,6 +7,7 @@ from argparse import ArgumentParser
 parser = ArgumentParser()
 parser.add_argument('-c', dest='config_name', type=str, default='debug', help='Choose hyperparameter configuration file')
 parser.add_argument('-r', dest='restart', type=int, default=-1, help='Epoch of model to restore')
+parser.add_argument('--reset-log', dest='reset_log', action='store_true', help='whether to erase log file or not')
 cmd_args = parser.parse_args()
 config_filename = 'configs.' + cmd_args.config_name
 args = importlib.import_module(config_filename).args
@@ -46,6 +47,9 @@ else:
     device = torch.device('cpu')
 
 # Set logger
+if cmd_args.reset_log:
+    log_path = os.path.join(args.exp_dir, 'log.txt')
+    os.remove(log_path)
 scripts_to_save = ['train.py', 'models']
 log = create_exp_dir(args.exp_dir, scripts_to_save, args.debug)
 log('$' * 100)
