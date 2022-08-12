@@ -49,7 +49,7 @@ warnings.filterwarnings("ignore", category=UserWarning)
 
 device = torch.device("cpu"); gpu_id = -1 # select CPU
 
-gpu_id = '6' # select a single GPU  
+gpu_id = '5' # select a single GPU  
 #gpu_id = '2,3' # select multiple GPUs  
 os.environ["CUDA_VISIBLE_DEVICES"] = str(gpu_id)  
 if torch.cuda.is_available():
@@ -58,7 +58,9 @@ if torch.cuda.is_available():
     
 print(device)
 
-
+parser = argparse.ArgumentParser()
+parser.add_argument('--no-log', dest='no_log', action='store_true')
+cmd_args = parser.parse_args()
 # %%
 ###################
 # Hyper-parameters
@@ -71,9 +73,9 @@ class DotDict(dict):
         
 args = DotDict()
 # args.nb_nodes = 20 # TSP20
-args.nb_nodes = 50 # TSP50
-#args.nb_nodes = 100 # TSP100
-args.bsz = 512 # TSP20 TSP50
+# args.nb_nodes = 50 # TSP50
+args.nb_nodes = 100 # TSP100
+args.bsz = 256 # TSP20 TSP50
 args.dim_emb = 128
 args.dim_ff = 512
 args.dim_input_nodes = 2
@@ -641,17 +643,18 @@ model_baseline.eval()
 print(args); print('')
 
 # Logs
-os.system("mkdir logs")
 time_stamp=datetime.datetime.now().strftime("%y-%m-%d--%H-%M-%S")
-file_name = 'logs'+'/'+time_stamp + "-n{}".format(args.nb_nodes) + "-gpu{}".format(args.gpu_id) + ".txt"
-file = open(file_name,"w",1) 
-file.write(time_stamp+'\n\n') 
-for arg in vars(args):
-    file.write(arg)
-    hyper_param_val="={}".format(getattr(args, arg))
-    file.write(hyper_param_val)
-    file.write('\n')
-file.write('\n\n') 
+if not cmd_args.no_log:
+    os.system("mkdir logs")
+    file_name = 'logs'+'/'+time_stamp + "-n{}".format(args.nb_nodes) + "-gpu{}".format(args.gpu_id) + ".txt"
+    file = open(file_name,"w",1) 
+    file.write(time_stamp+'\n\n') 
+    for arg in vars(args):
+        file.write(arg)
+        hyper_param_val="={}".format(getattr(args, arg))
+        file.write(hyper_param_val)
+        file.write('\n')
+    file.write('\n\n') 
 plot_performance_train = []
 plot_performance_baseline = []
 all_strings = []
@@ -795,7 +798,8 @@ for epoch in range(0,args.nb_epochs):
     mystring_min = 'Epoch: {:d}, epoch time: {:.3f}min, tot time: {:.3f}day, L_train: {:.3f}, L_base: {:.3f}, L_test: {:.3f}, gap_train(%): {:.3f}, update: {}'.format(
         epoch, time_one_epoch/60, time_tot/86400, mean_tour_length_train, mean_tour_length_baseline, mean_tour_length_test, 100*gap_train, update_baseline) 
     print(mystring_min) # Comment if plot display
-    file.write(mystring_min+'\n')
+    if not cmd_args.no_log:
+        file.write(mystring_min+'\n')
 #     all_strings.append(mystring_min) # Uncomment if plot display
 #     for string in all_strings: 
 #         print(string)
