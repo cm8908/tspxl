@@ -9,6 +9,7 @@ args.loss_fn = 'reinforce'
 args.optim = 'adam'
 args.learning_rate = 0.0001
 args.tol = 0.001
+args.attn_type = 0
 
 # Experimental #
 args.debug = True
@@ -41,8 +42,8 @@ args.n_dec_layer = 2
 
 # Minor Hyperparameters #
 args.deterministic = False
-args.pre_lnorm = True
-args.dropout_rate = 0.1
+args.pre_lnorm = False
+args.dropout_rate = 0
 args.internal_drop = -1
 args.clip_value = 10
 args.clamp_len = -1
