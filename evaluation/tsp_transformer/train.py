@@ -51,7 +51,7 @@ else:
 if cmd_args.reset_log:
     log_path = os.path.join(args.exp_dir, 'log.txt')
     os.remove(log_path)
-scripts_to_save = ['train.py', 'models']
+scripts_to_save = ['train.py', 'model.py']
 log = create_exp_dir(args.exp_dir, scripts_to_save, args.debug)
 log('$' * 100)
 log('Program started at ' + datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
@@ -198,14 +198,11 @@ def eval_rl():
             # tour_b_list = []
             # sum_log_probs_total = 0
 
-            mems = tuple()
-            mems_b = tuple()
-
             # for j, (data, _) in enumerate(val_loader.get_split_iter(full_data)):
-            ret = model(data, True, *mems)
+            ret = model(data, True)
             tour, sum_log_probs, probs_cat = ret
 
-            ret_b = baseline(data, None, True, *mems_b)
+            ret_b = baseline(data, True)
             tour_b, _, _ = ret_b
             
             # tour_list.append(tour)
@@ -217,15 +214,15 @@ def eval_rl():
 
             L_train = compute_tour_length(tour, data)
             L_base = compute_tour_length(tour_b, data)
-            val_loss = model.criterion(L_train, L_base, sum_log_probs)
+            val_loss = criterion(L_train, L_base, sum_log_probs)
         
-        # L_train_list.append(L_train.mean().item())
-        # L_base_list.append(L_base.mean().item())
-        # val_loss_list.append(val_loss.mean().item())
+            L_train_list.append(L_train.mean().item())
+            L_base_list.append(L_base.mean().item())
+            val_loss_list.append(val_loss.mean().item())
 
-    L_train_mean = L_train.mean().item()
-    L_base_mean = L_base.mean().item()
-    val_loss_mean = val_loss.mean().item()
+    L_train_mean = np.mean(L_train_list)
+    L_base_mean = np.mean(L_base_list)
+    val_loss_mean = np.mean(val_loss_list)
 
     dur = time() - eval_start_time
     
@@ -289,9 +286,6 @@ def train_rl():
         # sum_log_probs_list = []
         # sum_log_probs_total = 0
     
-        mems = tuple()
-        mems_b = tuple()
-
         # for j, (data, done) in enumerate(train_loader.get_split_iter(full_data)):
         t_model_forward_start = time()
         '''
@@ -317,35 +311,6 @@ def train_rl():
         L_base_track.append(L_base)
         loss_track.append(loss)
 
-        # tour_list.append(tour)
-        # tour_cat = torch.cat(tour_list, dim=0)
-
-        # tour_b_list.append(tour_b)
-        # tour_b_cat = torch.cat(tour_b_list, dim=0)
-
-        # sum_log_probs_total = sum_log_probs_total + sum_log_probs
-
-        # Update model using intermediate tour
-        # if args.update_intermediate and j != 0:
-        #     dur, _, _, _ = update_model(tour_cat, tour_b_cat, sum_log_probs_total, full_data, done)
-        #     t_update_interm_list.append(dur)
-
-        #  aggregate each partial tours            
-        # if args.aggregation == 'simple_join':
-        #     for k in range(j+1):
-        #         tour_list[k] = tour_list[k] + k * args.segm_len
-        #         tour_b_list[k] = tour_b_list[k] + k * args.segm_len
-        #     complete_tour = torch.cat(tour_list, dim=0)
-        #     complete_tour_b = torch.cat(tour_b_list, dim=0)
-
-        # End of Inner Loop (Full Data) #
-        # Update model using complete tour
-        # if args.update_total and not args.update_intermediate:
-        #     dur, L_train, L_base, loss = update_model(complete_tour, complete_tour_b, sum_log_probs_total, full_data)
-        #     t_update_total_list.append(dur)
-        #     total_L_train_track.append(L_train)
-        #     total_L_base_track.append(L_base)
-        #     total_loss_track.append(loss)
 
         if (i+1) % args.log_interval == 0:
             t_one_batch = time() - t_one_batch_start

@@ -213,26 +213,6 @@ class DecoderLayer(nn.Module):
 
         return h_t  # (1, B, H)
 
-class PositionalEmbedding(nn.Module):
-    """
-    Original code from : github.com/kimiyoung
-    """
-    def __init__(self, demb):
-        super(PositionalEmbedding, self).__init__()
-
-        self.demb = demb
-
-        inv_freq = 1 / (10000 ** (torch.arange(0.0, demb, 2.0) / demb))
-        self.register_buffer('inv_freq', inv_freq)
-
-    def forward(self, pos_seq, bsz=None):
-        sinusoid_inp = torch.ger(pos_seq, self.inv_freq)
-        pos_emb = torch.cat([sinusoid_inp.sin(), sinusoid_inp.cos()], dim=-1)
-
-        if bsz is not None:
-            return pos_emb[:,None,:].expand(-1, bsz, -1)
-        else:
-            return pos_emb[:,None,:]
 
 class TSPDecoder(nn.Module):
     """
@@ -268,11 +248,6 @@ class TSPDecoder(nn.Module):
             mask : (1, N, B, 1)
             rel : tuple(r, u, v)
         """
-        # Preparing positional encoding
-        # if self.attn_type == 2:
-        #     pos_seq = torch.arange(K_a.size(0)-1, -1, -1, device=h_t.device, dtype=h_t.dtype)
-        #     r = self.pos_emb(pos_seq)
-        #     rel_a = (r, self.u, self.v)
 
         # Loop for each decoder layer
         t_decoder_loop_start = time()
@@ -289,20 +264,10 @@ class TSPDecoder(nn.Module):
         
         return probs
 
-def generate_positional_encoding(d_model, max_len):
-    """
-    Create standard transformer PEs.
-    Inputs :  
-      d_model is a scalar correspoding to the hidden dimension
-      max_len is the maximum length of the sequence
-    Output :  
-      pe of size (max_len, d_model), where d_model=dim_emb, max_len=1000
-    """
-    pe = torch.zeros(max_len, d_model)
-    position = torch.arange(0, max_len, dtype=torch.float).unsqueeze(1)
+def generate_positional_encoding(pos_seq, d_model):
     div_term = torch.exp(torch.arange(0, d_model, 2).float() * (-torch.log(torch.tensor(10000.0)) / d_model))
-    pe[:,0::2] = torch.sin(position * div_term)
-    pe[:,1::2] = torch.cos(position * div_term)
+    sinusoid = torch.outer(pos_seq, div_term)
+    pe = torch.cat([sinusoid.sin(), sinusoid.cos()], dim=1)
     return pe
 
 class TSPNet(nn.Module):
@@ -317,11 +282,11 @@ class TSPNet(nn.Module):
 
         self.attn_type = attn_type
         if attn_type == 0 or attn_type == 1:
-            self.ape = generate_positional_encoding(d_model, maxlen)
+            pos_seq = torch.arange(maxlen)
+            self.ape = generate_positional_encoding(pos_seq, d_model)
         if attn_type == 2:
             self.u = nn.Parameter(torch.Tensor(n_head, d_model//n_head))
             self.v = nn.Parameter(torch.Tensor(n_head, d_model//n_head))
-            self.pos_emb = PositionalEmbedding(d_model)
             self.segm_len = segm_len
     def forward(self, x, deterministic=False):
         '''
@@ -370,7 +335,7 @@ class TSPNet(nn.Module):
                 h_t = h_t + self.ape[t].repeat(bsz,1)
             if self.attn_type == 2:
                 pos_seq = torch.arange(min(t, self.segm_len-1), -1, -1, device=h_t.device, dtype=h_t.dtype)
-                r = self.pos_emb(pos_seq)
+                r = generate_positional_encoding(pos_seq, h_t.size(-1))
                 rel = (r, self.u, self.v)
 
             # Decode one step
