@@ -109,7 +109,7 @@ class Attention(nn.Module):
             score = self.clip * torch.tanh(score)  # (1, N, B, nh)
         if mask is not None:
             mask = mask.repeat(1, 1, 1, self.n_head)  # (1, N, B, nh)
-            score.masked_fill_(mask, -torch.inf)
+            score.masked_fill_(mask, float('-1e9'))
         weight = torch.softmax(score, dim=1)  # (1, N, B, nh)
         try: weight = self.drop(weight)
         except AttributeError: pass
