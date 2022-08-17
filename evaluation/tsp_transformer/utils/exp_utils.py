@@ -45,10 +45,6 @@ def create_exp_dir(dir_path, scripts_to_save=None, debug=False):
 
     return get_logger(log_path=os.path.join(dir_path, 'log.txt'))
 
-def save_checkpoint(model, optimizer, path, epoch):
-    try: 
-        os.remove(os.path.join(path, f'model_{epoch-1}.pt'))
-        os.remove(os.path.join(path, f'optimizer_{epoch-1}.pt'))
-    except: pass
-    torch.save(model, os.path.join(path, 'model_{}.pt'.format(epoch)))
-    torch.save(optimizer.state_dict(), os.path.join(path, 'optimizer_{}.pt'.format(epoch)))
+def save_checkpoint(model, optimizer, path):
+    torch.save(model, os.path.join(path, 'model.pt'))
+    torch.save(optimizer.state_dict(), os.path.join(path, 'optimizer.pt'))
