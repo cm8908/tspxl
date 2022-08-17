@@ -2,6 +2,12 @@ class DotDict(dict):
     def __getattr__(self, key):
         return self[key]
 args = DotDict()
+'''
+TSP100
+BSZ 256
+Attn Type 0 (Bresson et al. 2021)
+Integrated version.
+'''
 
 # Learning Method #
 args.rl = True
@@ -12,26 +18,26 @@ args.tol = 0.001
 args.attn_type = 0
 
 # Experimental #
-args.debug = True
-args.exp_dir = 'logs/?'
-args.seed = 1234
-args.log_interval = 5
+args.debug = False
+args.exp_dir = 'logs/tsp100_att0'
+args.seed = 0
+args.log_interval = 500
 
 # GPU #
 args.cuda = True
-args.gpu_id = "5"
-args.multi_gpu = False  # currently not compatible with self.parameters()
+args.gpu_id = "6"
+args.multi_gpu = False  # currently not available
 
 # Data-Related #
 args.data_root = '../datasets'
 args.data_source = 'joshi'
 args.n_point = 100
 args.sorted = False
-args.bsz = 512
+args.bsz = 256
 args.segm_len = 25
 args.n_epoch = 10000
-args.rl_maxstep = 25#00  # batch per epoch and eval interval
-args.rl_eval_maxstep = 20
+args.rl_maxstep = 2500  # nb_batch_per_epoch and eval interval
+args.rl_eval_maxstep = 20  # nb_batch_eval
 
 # Model Hyperparameters #
 args.d_model = 128
@@ -43,7 +49,7 @@ args.n_dec_layer = 2
 # Minor Hyperparameters #
 args.deterministic = False
 args.pre_lnorm = False
-args.dropout_rate = 0
-args.internal_drop = -1
+args.dropout_rate = 0.0
+args.internal_drop = 0.0  # outdated
 args.clip_value = 10
 args.clamp_len = -1

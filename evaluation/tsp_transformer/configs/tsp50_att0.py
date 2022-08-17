@@ -48,8 +48,8 @@ args.n_dec_layer = 2
 
 # Minor Hyperparameters #
 args.deterministic = False
-args.pre_lnorm = True
+args.pre_lnorm = False
 args.dropout_rate = 0.0
-args.internal_drop = -1
+args.internal_drop = 0.0  # outdated
 args.clip_value = 10
 args.clamp_len = -1
