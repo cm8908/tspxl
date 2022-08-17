@@ -136,6 +136,7 @@ else:
 
 if args.multi_gpu:
     model = nn.DataParallel(model).to(device)
+    # baseline = nn.parallel.DistributedDataParallel(model).to(device)
     try: baseline = nn.DataParallel(baseline).to(device)
     except NameError: pass
 else:
@@ -238,18 +239,19 @@ def eval_rl():
     if not args.debug:
         if min_tour_length > L_train_mean:
             min_tour_length = L_train_mean
-            save_checkpoint(model, optimizer, args.exp_dir, e)
+            save_checkpoint(model, optimizer, args.exp_dir)
             log('@' * 100)
             log('Model has been saved. Min Mean L_train '+str(min_tour_length))
             log('@' * 100)
 
-            example_path = os.path.join(args.exp_dir, f'example_{e}.pkl')
+            example_path = os.path.join(args.exp_dir, f'example.pt')
             with open(example_path, 'wb') as f:
                 example = {
                     'tour': tour, 'tour_b': tour_b,
                     'L_train': L_train, 'L_base': L_base, 'data': data
                 }
-                pickle.dump(example, f)
+                torch.save(example, f)
+            log(f'Model, Optimizer and Example dictionary are saved at Epoch {e}')
 
     log('#' * 100)
     log_str = f'Eval Log -- (Step:{args.rl_eval_maxstep}) | Total Time {dur:.3f}s | Time per step {dur/args.rl_eval_maxstep:.3f}s | Mean L_train {L_train_mean:.5f} | Mean L_base {L_base_mean:.5f} | Mean Val Loss {val_loss_mean:.5f}'
@@ -356,15 +358,18 @@ def train_sl():
 
 if cmd_args.restart > 0:
     log(f'Restarting from epoch {cmd_args.restart}')
-    model_to_load = os.path.join(args.exp_dir, f'model_{cmd_args.restart}.pt')
-    opt_to_load = os.path.join(args.exp_dir, f'optimizer_{cmd_args.restart}.pt')
+    model_to_load = os.path.join(args.exp_dir, f'model.pt')
+    opt_to_load = os.path.join(args.exp_dir, f'optimizer.pt')
     with open(model_to_load, 'rb') as m, open(opt_to_load, 'rb') as o:
         model = torch.load(m)
         optimizer.load_state_dict(torch.load(o))
         print(type(model), type(optimizer))
+    start_epoch = cmd_args.restart + 1
+else:
+    start_epoch = 0
 try:
     t_train_start = time()
-    for e in range(args.n_epoch):
+    for e in range(start_epoch, args.n_epoch):
         t_epoch = train_rl()
         log('@' * 100)
         log(f'Epoch {e} has been ended. Duration: {t_epoch:.3f}s')
