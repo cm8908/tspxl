@@ -80,3 +80,8 @@ evaluation/bresson/r_decoderxl.py
 evaluation/bresson/train_bresson.py
 evaluation/bresson/train_tsp50.py
 evaluation/bresson/__pycache__/train_bresson.cpython-310.pyc
+evaluation/tsp_transformer/generate_test_data.ipynb
+evaluation/tsp_transformer/reproduce.ipynb
+evaluation/play.ipynb
+evaluation/tsp_transformer/.ipynb_checkpoints/record_time_50-checkpoint.ipynb
+evaluation/tsp_transformer/.ipynb_checkpoints/record_time_100-checkpoint.ipynb
