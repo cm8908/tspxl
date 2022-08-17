@@ -72,15 +72,13 @@ def rel_shift(x):
     return x
 
 class Attention(nn.Module):
-    def __init__(self, n_head, d_model, internal_drop, attn_type=0, clip_value=None):
+    def __init__(self, n_head, d_model, attn_type=0, clip_value=None):
         super().__init__()
 
         self.n_head = n_head
         self.d_head = d_model//n_head
         self.clip = clip_value
 
-        if internal_drop > 0:
-            self.drop = nn.Dropout(internal_drop)
         if attn_type == 2:
             self.r_net = nn.Linear(d_model, d_model)
     
@@ -111,8 +109,6 @@ class Attention(nn.Module):
             mask = mask.repeat(1, 1, 1, self.n_head)  # (1, N, B, nh)
             score.masked_fill_(mask, float('-1e9'))
         weight = torch.softmax(score, dim=1)  # (1, N, B, nh)
-        try: weight = self.drop(weight)
-        except AttributeError: pass
         out = torch.einsum('ijbn,jbnd->ibnd', weight, V)  # (1, B, nh, D)
         out = out.view(qlen, bsz, self.n_head*self.d_head)  # (1, B, H)
         weight = weight.mean(dim=-1)  # (1, N, B)
@@ -138,7 +134,7 @@ class DecoderLayer(nn.Module):
 
         # self.MHSA = nn.MultiheadAttention(d_model, n_head)
         self.SelfAttn = Attention(n_head, d_model, internal_drop, attn_type)
-        self.EncDecAttn = Attention(n_head, d_model, internal_drop, attn_type)
+        self.EncDecAttn = Attention(n_head, d_model, internal_drop)
         if pre_lnorm:
             self.prenorm = nn.LayerNorm(d_model)
         self.norm1 = nn.LayerNorm(d_model)
@@ -265,10 +261,10 @@ class TSPDecoder(nn.Module):
         return probs
 
 def generate_positional_encoding(pos_seq, d_model):
-    div_term = torch.exp(torch.arange(0, d_model, 2).float() * (-torch.log(torch.tensor(10000.0)) / d_model))
+    div_term = torch.exp(torch.arange(0, d_model, 2).to(pos_seq.device).float() * (-torch.log(torch.tensor(10000.0)) / d_model))
     sinusoid = torch.outer(pos_seq, div_term)
     pe = torch.cat([sinusoid.sin(), sinusoid.cos()], dim=1)
-    return pe
+    return pe[:,None,:]
 
 class TSPNet(nn.Module):
     def __init__(self, d_model, d_ff, n_head, n_enc_layer, n_dec_layer, segm_len, dropout_rate, internal_drop, clip_value, pre_lnorm, maxlen=1000, attn_type=0):
@@ -332,7 +328,7 @@ class TSPNet(nn.Module):
         for t in range(N):
 
             if self.attn_type == 0 or self.attn_type == 1:
-                h_t = h_t + self.ape[t].repeat(bsz,1)
+                h_t = h_t + self.ape[t].repeat(1,bsz,1)
             if self.attn_type == 2:
                 pos_seq = torch.arange(min(t, self.segm_len-1), -1, -1, device=h_t.device, dtype=h_t.dtype)
                 r = generate_positional_encoding(pos_seq, h_t.size(-1))
